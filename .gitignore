@@ -37,3 +37,7 @@ release/
 # Logs
 *.log
 logs/
+
+# Local service data
+apps/api/data/
+.local-storage/

@@ -37,3 +37,14 @@ Status: Complete (2026-07-15)
 - Added a composition-root dependency container that registers abstractions to local implementations.
 - Added unit tests for all local providers and dependency registration.
 - Verified Ruff, Black, and pytest checks.
+
+## Phase 2
+
+Status: Complete (2026-07-15)
+
+- Added SQLAlchemy 2.x persistence configuration with SQLite as the local default.
+- Added Alembic configuration and the initial migration for video, clip, job, and settings tables.
+- Added database session factory and transaction-scope management.
+- Added repository ports, SQLAlchemy repository adapters, and dependency-container registrations.
+- Added repository and dependency-registration unit tests.
+- Verified Ruff, Black, pytest, and the initial Alembic migration.
