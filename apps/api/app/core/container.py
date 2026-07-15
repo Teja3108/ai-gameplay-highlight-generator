@@ -1,10 +1,12 @@
 """Application composition root and dependency registry."""
 
-import os
 from pathlib import Path
 from typing import Any, Optional, TypeVar, cast
 
+from app.application.services.capability_resolver import CapabilityResolver
+from app.application.services.hardware_detector import HardwareDetector
 from app.domain.interfaces.auth import AuthProvider
+from app.domain.interfaces.config import ConfigProvider
 from app.domain.interfaces.queue import QueueInterface
 from app.domain.interfaces.repositories import (
     ClipRepositoryInterface,
@@ -14,6 +16,7 @@ from app.domain.interfaces.repositories import (
 )
 from app.domain.interfaces.storage import StorageInterface
 from app.infrastructure.auth.local_auth_provider import LocalAuthProvider
+from app.infrastructure.config.environment_config_provider import EnvironmentConfigProvider
 from app.infrastructure.persistence.database import create_database_engine, create_session_factory
 from app.infrastructure.persistence.repositories.clip_repository import ClipRepository
 from app.infrastructure.persistence.repositories.job_repository import JobRepository
@@ -48,12 +51,20 @@ def create_container(
     storage_root: Optional[str] = None, database_url: Optional[str] = None
 ) -> DependencyContainer:
     """Build the local deployment's dependency graph at the composition root."""
-    root = Path(storage_root or os.getenv("LOCAL_STORAGE_ROOT", ".local-storage"))
     container = DependencyContainer()
+    config_provider = EnvironmentConfigProvider()
+    config = config_provider.get_config()
+    root = Path(storage_root) if storage_root else config.storage_root
+    hardware_detector = HardwareDetector()
+
+    container.register(ConfigProvider, config_provider)
+    container.register(HardwareDetector, hardware_detector)
+    container.register(CapabilityResolver, CapabilityResolver(config_provider, hardware_detector))
     container.register(StorageInterface, LocalStorageProvider(root))
     container.register(QueueInterface, LocalQueueProvider[object]())
     container.register(AuthProvider, LocalAuthProvider())
-    session_factory = create_session_factory(create_database_engine(database_url))
+    engine = create_database_engine(database_url or config.database_url)
+    session_factory = create_session_factory(engine)
     container.register(VideoRepositoryInterface, VideoRepository(session_factory))
     container.register(ClipRepositoryInterface, ClipRepository(session_factory))
     container.register(JobRepositoryInterface, JobRepository(session_factory))

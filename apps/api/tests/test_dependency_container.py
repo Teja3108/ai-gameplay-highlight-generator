@@ -1,6 +1,9 @@
 import pytest
+from app.application.services.capability_resolver import CapabilityResolver
+from app.application.services.hardware_detector import HardwareDetector
 from app.core.container import DependencyContainer, create_container
 from app.domain.interfaces.auth import AuthProvider
+from app.domain.interfaces.config import ConfigProvider
 from app.domain.interfaces.queue import QueueInterface
 from app.domain.interfaces.repositories import (
     ClipRepositoryInterface,
@@ -17,6 +20,9 @@ def test_local_container_registers_dependencies_by_interface(tmp_path):
     assert isinstance(container.resolve(StorageInterface), StorageInterface)
     assert isinstance(container.resolve(QueueInterface), QueueInterface)
     assert isinstance(container.resolve(AuthProvider), AuthProvider)
+    assert isinstance(container.resolve(ConfigProvider), ConfigProvider)
+    assert isinstance(container.resolve(HardwareDetector), HardwareDetector)
+    assert isinstance(container.resolve(CapabilityResolver), CapabilityResolver)
     assert isinstance(container.resolve(VideoRepositoryInterface), VideoRepositoryInterface)
     assert isinstance(container.resolve(ClipRepositoryInterface), ClipRepositoryInterface)
     assert isinstance(container.resolve(JobRepositoryInterface), JobRepositoryInterface)
