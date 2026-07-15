@@ -38,3 +38,4 @@ target-version = ["py39"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+pythonpath = ["."]

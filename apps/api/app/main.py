@@ -5,6 +5,7 @@ Phase 0 intentionally defines no HTTP endpoints.
 
 from fastapi import FastAPI
 
+from app.core.container import create_container
 from app.core.logging import configure_logging
 
 configure_logging()
@@ -16,3 +17,4 @@ app = FastAPI(
     redoc_url=None,
     openapi_url=None,
 )
+app.state.container = create_container()
