@@ -12,15 +12,21 @@
   },
   "dependencies": {
     "@gameplay/shared-types": "0.1.0",
+    "@tanstack/react-query": "^5.101.2",
     "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^6.1.0",
+    "framer-motion": "^12.42.2",
+    "lucide-react": "^1.24.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-hook-form": "^7.81.0",
+    "recharts": "^3.9.2",
+    "vite": "^6.1.0",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@types/node": "^22.10.7",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
-    "@types/node": "^22.10.7",
     "autoprefixer": "^10.4.20",
     "eslint": "^9.19.0",
     "eslint-plugin-import": "^2.31.0",
