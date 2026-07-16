@@ -203,6 +203,69 @@ def test_resume_reuses_restored_project_and_keeps_its_identity(monkeypatch, tmp_
         api.jobs.pop(job.id, None)
 
 
+def test_gemini_recovery_exhaustion_pauses_and_persists_the_project(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(api, "JOB_STORE_PATH", tmp_path / "jobs.json")
+    job = api.JobState(
+        id="gemini-paused-job",
+        filename="recording.mp4",
+        source_path="/tmp/recording.mp4",
+        status="processing",
+        stage="Finding highlights",
+        progress=52,
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+        options={},
+        logs=["[gemini] GEMINI_RECOVERY_EXHAUSTED: all configured models and keys are temporarily unavailable."],
+    )
+    api.jobs[job.id] = job
+    try:
+        assert api.gemini_recovery_exhausted(job)
+        api.pause_for_gemini(job)
+
+        assert job.status == "paused"
+        assert job.stage == "Paused"
+        assert "progress has been safely saved" in (job.error or "")
+        persisted = json.loads((tmp_path / "jobs.json").read_text(encoding="utf-8"))
+        saved = next(item for item in persisted if item["id"] == job.id)
+        assert saved["status"] == "paused"
+        assert "key-one" not in json.dumps(persisted)
+    finally:
+        api.jobs.pop(job.id, None)
+
+
+def test_paused_project_can_be_resumed(monkeypatch, tmp_path) -> None:
+    upload_root = tmp_path / "uploads"
+    upload_root.mkdir()
+    source = upload_root / "recording.mp4"
+    source.write_bytes(b"video")
+    monkeypatch.setattr(api, "UPLOAD_ROOT", upload_root)
+    monkeypatch.setattr(api, "JOB_STORE_PATH", tmp_path / "jobs.json")
+    job = api.JobState(
+        id="paused-resume-job",
+        filename="recording.mp4",
+        source_path=str(source),
+        status="paused",
+        stage="Paused",
+        progress=52,
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+        options={"clips": 5, "layout_mode": "auto", "review_only": False},
+    )
+    api.jobs[job.id] = job
+
+    def discard_task(coroutine):
+        coroutine.close()
+
+    monkeypatch.setattr(api.asyncio, "create_task", discard_task)
+    try:
+        with TestClient(app) as client:
+            response = client.post(f"/api/jobs/{job.id}/resume", headers={"host": "localhost"})
+        assert response.status_code == 202
+        assert job.status == "queued"
+    finally:
+        api.jobs.pop(job.id, None)
+
+
 def test_resume_waits_for_a_cancelled_process_to_exit(monkeypatch, tmp_path) -> None:
     upload_root = tmp_path / "uploads"
     upload_root.mkdir()

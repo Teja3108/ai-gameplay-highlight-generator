@@ -203,6 +203,23 @@ def pipeline_error(error: Exception) -> str:
     return "The pipeline stopped before finishing. You can retry this project."
 
 
+def gemini_recovery_exhausted(job: JobState) -> bool:
+    """Recognise the engine's stable recovery marker without exposing provider text."""
+
+    return any("gemini_recovery_exhausted" in entry.lower() for entry in job.logs)
+
+
+def pause_for_gemini(job: JobState) -> None:
+    """Persist a safe, resumable terminal state for exhausted Gemini recovery."""
+
+    job.status, job.stage = "paused", "Paused"
+    job.error = (
+        "Gemini is temporarily unavailable. Your progress has been safely saved. "
+        "Resume later when the service becomes available."
+    )
+    log(job, "Gemini is busy. Saving progress. Project paused safely.")
+
+
 async def stop_process(job_id: str, process: asyncio.subprocess.Process) -> None:
     """Terminate a cancelled engine, escalating only when it does not exit."""
 
@@ -330,6 +347,9 @@ async def run_engine(job: JobState, request: GenerateRequest) -> None:
             log(job, "Processing cancelled.")
             return
         if return_code != 0:
+            if gemini_recovery_exhausted(job):
+                pause_for_gemini(job)
+                return
             raise RuntimeError(f"Pipeline exited with code {return_code}.")
         if not output_file.is_file():
             raise RuntimeError("Pipeline completed without producing its result file.")
@@ -632,9 +652,9 @@ async def resume_job(job_id: str) -> dict[str, Any]:
             status_code=404,
             detail="Saved project metadata is unavailable in this local service data directory.",
         )
-    if job.status not in {"failed", "cancelled"}:
+    if job.status not in {"failed", "cancelled", "paused"}:
         raise HTTPException(
-            status_code=409, detail="Only failed or cancelled projects can be resumed."
+            status_code=409, detail="Only failed, paused, or cancelled projects can be resumed."
         )
     if process_is_stopping(job_id):
         raise HTTPException(

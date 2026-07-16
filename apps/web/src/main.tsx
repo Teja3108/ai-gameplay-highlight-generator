@@ -757,7 +757,7 @@ function Processing({
   return (
     <PageShell
       eyebrow="Processing"
-      title={job.status === 'failed' ? 'This project needs attention.' : 'Your editor is at work.'}
+      title={job.status === 'failed' || job.status === 'paused' ? 'This project needs attention.' : 'Your editor is at work.'}
     >
       <div className="process-layout">
         <section className="process-card">
@@ -769,7 +769,7 @@ function Processing({
             >
               <b>{job.progress}%</b>
             </div>
-            <span>{job.status === 'failed' ? 'Processing paused' : job.stage}</span>
+            <span>{job.status === 'failed' || job.status === 'paused' ? 'Processing paused' : job.stage}</span>
           </div>
           <div className="stages">
             {stages.map((stage, index) => (
@@ -794,6 +794,16 @@ function Processing({
               detail={
                 job.error ||
                 'Your source video may be unsupported or a local dependency needs attention.'
+              }
+              onRetry={() => void retry()}
+            />
+          )}
+          {job.status === 'paused' && (
+            <ErrorNotice
+              title="Gemini is temporarily unavailable"
+              detail={
+                job.error ||
+                'Your progress has been safely saved. Resume later when the service becomes available.'
               }
               onRetry={() => void retry()}
             />
