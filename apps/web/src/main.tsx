@@ -45,7 +45,15 @@ import {
 import './styles.css';
 
 type Page =
-  'dashboard' | 'generate' | 'review' | 'history' | 'projects' | 'settings' | 'help' | 'about';
+  | 'dashboard'
+  | 'generate'
+  | 'processing'
+  | 'review'
+  | 'history'
+  | 'projects'
+  | 'settings'
+  | 'help'
+  | 'about';
 type Highlight = {
   start_time: number;
   end_time: number;
@@ -134,8 +142,8 @@ const nav: { id: Page; label: string; icon: typeof Home }[] = [
 function useJobs() {
   return useQuery<Job[]>({
     queryKey: ['jobs'],
-    queryFn: async () => {
-      const response = await fetch(`${api}/jobs`);
+    queryFn: async ({ signal }) => {
+      const response = await fetch(`${api}/jobs`, { signal });
       if (!response.ok) throw new Error('The local service is unavailable.');
       return response.json();
     },
@@ -698,19 +706,32 @@ function Processing({
   job,
   onComplete,
   onRetry,
+  onCancel,
+  onNavigate,
+  serviceUnavailable,
 }: {
   job: Job;
   onComplete: () => void;
   onRetry: () => Promise<void>;
+  onCancel: () => Promise<void>;
+  onNavigate: (page: Page) => void;
+  serviceUnavailable: boolean;
 }) {
   const current = Math.max(0, stages.indexOf(job.stage));
   const [retryError, setRetryError] = useState('');
+  const [cancelError, setCancelError] = useState('');
   useEffect(() => {
     if (job.status === 'completed') onComplete();
   }, [job.status, onComplete]);
   const cancel = async () => {
-    await fetch(`${api}/jobs/${job.id}/cancel`, { method: 'POST' });
-    queryClient.invalidateQueries({ queryKey: ['jobs'] });
+    setCancelError('');
+    try {
+      await onCancel();
+    } catch (reason) {
+      setCancelError(
+        reason instanceof Error ? reason.message : 'Processing could not be cancelled cleanly.',
+      );
+    }
   };
   const retry = async () => {
     setRetryError('');
@@ -765,6 +786,30 @@ function Processing({
             />
           )}
           {retryError && <ErrorNotice title="Couldn’t resume this project" detail={retryError} />}
+          {cancelError && <ErrorNotice title="Couldn’t cancel processing" detail={cancelError} />}
+          {serviceUnavailable && (
+            <section className="error-notice" role="alert">
+              <div>
+                <b>Processing stopped unexpectedly.</b>
+                <p>
+                  The local service is unreachable. Your saved project will remain available when the
+                  service reconnects.
+                </p>
+              </div>
+              <div>
+                <Button variant="secondary" onClick={() => void retry()}>
+                  <RefreshCw size={14} />
+                  Retry
+                </Button>
+                <Button variant="secondary" onClick={() => onNavigate('dashboard')}>
+                  Return to Dashboard
+                </Button>
+                <Button variant="quiet" onClick={() => onNavigate('history')}>
+                  View logs
+                </Button>
+              </div>
+            </section>
+          )}
         </section>
         <aside className="log-card">
           <div>
@@ -1438,19 +1483,41 @@ function App() {
       return;
     }
     setActiveJob(job);
-    setPage('history');
+    setPage('processing');
   }, []);
   const saveDefaults = useCallback((value: ProjectDefaults) => {
     localStorage.setItem(settingsKey, JSON.stringify(value));
     setDefaults(value);
   }, []);
   const resumeProject = useCallback(async (job: Job) => {
-    const response = await fetch(`${api}/jobs/${job.id}/resume`, { method: 'POST' });
+    let response: Response;
+    try {
+      response = await fetch(`${api}/jobs/${job.id}/resume`, { method: 'POST' });
+    } catch {
+      throw new Error(
+        'The local service is unavailable. Your project is still saved locally; reconnect, then resume it.',
+      );
+    }
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
       throw new Error(body.detail ?? 'The project could not be resumed.');
     }
     setActiveJob(await response.json());
+    await queryClient.invalidateQueries({ queryKey: ['jobs'] });
+  }, []);
+  const cancelProject = useCallback(async (job: Job) => {
+    let response: Response;
+    try {
+      response = await fetch(`${api}/jobs/${job.id}/cancel`, { method: 'POST' });
+    } catch {
+      throw new Error('The local service is unavailable, so processing could not be cancelled.');
+    }
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail ?? 'Processing could not be cancelled.');
+    }
+    setActiveJob(undefined);
+    setPage('dashboard');
     await queryClient.invalidateQueries({ queryKey: ['jobs'] });
   }, []);
   const saveReview = useCallback(async (job: Job, state: Required<SavedReviewState>) => {
@@ -1481,8 +1548,15 @@ function App() {
     [],
   );
   const content =
-    liveJob && ['queued', 'processing', 'failed'].includes(liveJob.status) ? (
-      <Processing job={liveJob} onComplete={showReview} onRetry={() => resumeProject(liveJob)} />
+    page === 'processing' && liveJob ? (
+      <Processing
+        job={liveJob}
+        onComplete={showReview}
+        onRetry={() => resumeProject(liveJob)}
+        onCancel={() => cancelProject(liveJob)}
+        onNavigate={setPage}
+        serviceUnavailable={isError}
+      />
     ) : (
       (() => {
         switch (page) {
@@ -1496,7 +1570,15 @@ function App() {
               />
             );
           case 'generate':
-            return <Generate defaults={defaults} onJob={(job) => setActiveJob(job)} />;
+            return (
+              <Generate
+                defaults={defaults}
+                onJob={(job) => {
+                  setActiveJob(job);
+                  setPage('processing');
+                }}
+              />
+            );
           case 'review':
             return (
               <Review
@@ -1531,6 +1613,17 @@ function App() {
             return <SettingsPage defaults={defaults} onSave={saveDefaults} />;
           case 'about':
             return <About />;
+          case 'processing':
+            return (
+              <PageShell eyebrow="Processing" title="No project selected">
+                <EmptyState
+                  title="Choose a project to inspect"
+                  description="Your projects remain available in the workspace."
+                  action="View projects"
+                  onAction={() => setPage('projects')}
+                />
+              </PageShell>
+            );
           default:
             return <Help />;
         }

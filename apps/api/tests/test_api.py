@@ -1,3 +1,5 @@
+import json
+
 from app import api
 from app.main import app
 from fastapi.testclient import TestClient
@@ -89,6 +91,112 @@ def test_job_responses_do_not_expose_the_source_path() -> None:
 
         assert response.status_code == 200
         assert "source_path" not in response.json()
+    finally:
+        api.jobs.pop(job.id, None)
+
+
+def test_interrupted_project_is_restored_and_marked_resumable(monkeypatch, tmp_path) -> None:
+    upload_root = tmp_path / "uploads"
+    upload_root.mkdir()
+    source = upload_root / "recording.mp4"
+    source.write_bytes(b"video")
+    store_path = tmp_path / "jobs.json"
+    store_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "interrupted-job",
+                    "filename": "recording.mp4",
+                    "source_path": str(source),
+                    "status": "processing",
+                    "stage": "Finding highlights",
+                    "progress": 52,
+                    "created_at": "2026-01-01T00:00:00+00:00",
+                    "updated_at": "2026-01-01T00:00:00+00:00",
+                    "options": {"clips": 5, "layout_mode": "auto", "review_only": False},
+                    "logs": ["Finding highlights"],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(api, "JOB_STORE_PATH", store_path)
+    monkeypatch.setattr(api, "UPLOAD_ROOT", upload_root)
+    api.jobs.pop("interrupted-job", None)
+    try:
+        api.load_jobs()
+        restored = api.jobs["interrupted-job"]
+
+        assert restored.status == "failed"
+        assert restored.stage == "Interrupted"
+        assert restored.progress == 52
+        assert restored.source_path == str(source)
+        assert "ready to resume" in (restored.error or "")
+        assert restored.logs[-1] == "Service interruption detected. Project can be resumed."
+    finally:
+        api.jobs.pop("interrupted-job", None)
+
+
+def test_malformed_project_record_does_not_hide_valid_projects(monkeypatch, tmp_path) -> None:
+    store_path = tmp_path / "jobs.json"
+    store_path.write_text(
+        json.dumps(
+            [
+                {"id": "malformed"},
+                {
+                    "id": "valid-job",
+                    "filename": "recording.mp4",
+                    "source_path": "/tmp/recording.mp4",
+                    "created_at": "2026-01-01T00:00:00+00:00",
+                    "updated_at": "2026-01-01T00:00:00+00:00",
+                    "options": {},
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(api, "JOB_STORE_PATH", store_path)
+    api.jobs.pop("valid-job", None)
+    try:
+        api.load_jobs()
+        assert api.jobs["valid-job"].filename == "recording.mp4"
+    finally:
+        api.jobs.pop("valid-job", None)
+
+
+def test_resume_reuses_restored_project_and_keeps_its_identity(monkeypatch, tmp_path) -> None:
+    upload_root = tmp_path / "uploads"
+    upload_root.mkdir()
+    source = upload_root / "recording.mp4"
+    source.write_bytes(b"video")
+    monkeypatch.setattr(api, "UPLOAD_ROOT", upload_root)
+    monkeypatch.setattr(api, "JOB_STORE_PATH", tmp_path / "jobs.json")
+    job = api.JobState(
+        id="resume-job",
+        filename="recording.mp4",
+        source_path=str(source),
+        status="failed",
+        stage="Failed",
+        progress=52,
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+        options={"clips": 5, "layout_mode": "auto", "review_only": False},
+    )
+    api.jobs[job.id] = job
+
+    def discard_task(coroutine):
+        coroutine.close()
+
+    monkeypatch.setattr(api.asyncio, "create_task", discard_task)
+    try:
+        with TestClient(app) as client:
+            response = client.post(f"/api/jobs/{job.id}/resume", headers={"host": "localhost"})
+
+        assert response.status_code == 202
+        assert response.json()["id"] == job.id
+        assert job.status == "queued"
+        assert job.progress == 0
+        assert "Project resumed." in job.logs
     finally:
         api.jobs.pop(job.id, None)
 

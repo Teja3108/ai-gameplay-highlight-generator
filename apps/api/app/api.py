@@ -134,20 +134,39 @@ def load_jobs() -> None:
         return
     try:
         saved_jobs = json.loads(JOB_STORE_PATH.read_text(encoding="utf-8"))
-        for saved_job in saved_jobs:
-            job = JobState.model_validate(saved_job)
-            if job.status in {"queued", "processing"}:
-                job.status, job.stage = "failed", "Interrupted"
-                job.error = (
-                    "The local service stopped before this project finished. "
-                    "Resume it to try again."
-                )
-                job.updated_at = now()
-            jobs[job.id] = job
-        save_jobs()
+        if not isinstance(saved_jobs, list):
+            raise ValueError("Saved project history is not a list.")
     except (json.JSONDecodeError, OSError, ValueError):
-        # A corrupt local history must not prevent the service from starting.
-        jobs.clear()
+        # Never discard in-memory projects or overwrite the on-disk history when
+        # recovery data cannot be read. A later restart or manual repair may still
+        # recover it.
+        return
+
+    restored: dict[str, JobState] = {}
+    changed = False
+    for saved_job in saved_jobs:
+        try:
+            job = JobState.model_validate(saved_job)
+        except ValueError:
+            # One malformed record must not make every other saved project vanish.
+            continue
+        if job.status in {"queued", "processing"}:
+            job.status, job.stage = "failed", "Interrupted"
+            job.error = (
+                "The local service stopped before this project finished. "
+                "The saved upload and project metadata are ready to resume."
+            )
+            job.updated_at = now()
+            job.logs.append("Service interruption detected. Project can be resumed.")
+            job.logs[:] = job.logs[-120:]
+            changed = True
+        restored[job.id] = job
+
+    if not restored:
+        return
+    jobs.update(restored)
+    if changed:
+        save_jobs()
 
 
 def log(job: JobState, message: str) -> None:
@@ -438,7 +457,10 @@ async def list_jobs() -> list[dict[str, Any]]:
 async def get_job(job_id: str) -> dict[str, Any]:
     job = jobs.get(job_id)
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found.")
+        raise HTTPException(
+            status_code=404,
+            detail="Saved project metadata is unavailable in this local service data directory.",
+        )
     return serialise(job)
 
 
@@ -448,7 +470,10 @@ async def get_job_source(job_id: str) -> FileResponse:
 
     job = jobs.get(job_id)
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found.")
+        raise HTTPException(
+            status_code=404,
+            detail="Saved project metadata is unavailable in this local service data directory.",
+        )
     source = Path(job.source_path).resolve()
     if not source.is_file() or not allowed_source(source):
         raise HTTPException(status_code=404, detail="The original upload is no longer available.")
@@ -512,7 +537,10 @@ async def cancel_job(job_id: str) -> dict[str, Any]:
 async def resume_job(job_id: str) -> dict[str, Any]:
     job = jobs.get(job_id)
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found.")
+        raise HTTPException(
+            status_code=404,
+            detail="Saved project metadata is unavailable in this local service data directory.",
+        )
     if job.status not in {"failed", "cancelled"}:
         raise HTTPException(
             status_code=409, detail="Only failed or cancelled projects can be resumed."
