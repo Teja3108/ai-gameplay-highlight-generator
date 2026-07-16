@@ -93,6 +93,69 @@ def test_job_responses_do_not_expose_the_source_path() -> None:
         api.jobs.pop(job.id, None)
 
 
+def test_review_state_is_persisted_for_a_completed_job(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(api, "JOB_STORE_PATH", tmp_path / "jobs.json")
+    job = api.JobState(
+        id="review-state-job",
+        filename="recording.mp4",
+        source_path=str(tmp_path / "recording.mp4"),
+        status="completed",
+        stage="Completed",
+        progress=100,
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+        options={"review_only": True},
+        result={"highlights": [{"start_time": 1, "end_time": 8}]},
+    )
+    api.jobs[job.id] = job
+    try:
+        with TestClient(app) as client:
+            response = client.put(
+                f"/api/jobs/{job.id}/review",
+                headers={"host": "localhost"},
+                json={
+                    "approved_indices": [0],
+                    "rejected_indices": [],
+                    "clip_edits": [{"index": 0, "start_time": 1.5, "end_time": 7.5}],
+                    "active_index": 0,
+                },
+            )
+
+        assert response.status_code == 200
+        assert job.options["review_state"]["approved_indices"] == [0]
+        assert job.options["review_state"]["clip_edits"][0]["start_time"] == 1.5
+    finally:
+        api.jobs.pop(job.id, None)
+
+
+def test_job_source_streams_the_original_upload_without_exposing_its_path(
+    monkeypatch, tmp_path
+) -> None:
+    upload_root = tmp_path / "uploads"
+    upload_root.mkdir()
+    source = upload_root / "recording.mp4"
+    source.write_bytes(b"source-video")
+    monkeypatch.setattr(api, "UPLOAD_ROOT", upload_root)
+    job = api.JobState(
+        id="source-job",
+        filename="recording.mp4",
+        source_path=str(source),
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+        options={},
+    )
+    api.jobs[job.id] = job
+    try:
+        with TestClient(app) as client:
+            response = client.get(f"/api/jobs/{job.id}/source", headers={"host": "localhost"})
+
+        assert response.status_code == 200
+        assert response.content == b"source-video"
+        assert str(source) not in response.text
+    finally:
+        api.jobs.pop(job.id, None)
+
+
 def test_review_render_rejects_invalid_selection(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(api, "JOB_STORE_PATH", tmp_path / "jobs.json")
     job = api.JobState(
@@ -118,6 +181,39 @@ def test_review_render_rejects_invalid_selection(monkeypatch, tmp_path) -> None:
 
         assert response.status_code == 400
         assert response.json()["detail"] == "Choose valid, unique highlight candidates."
+        assert job.status == "completed"
+    finally:
+        api.jobs.pop(job.id, None)
+
+
+def test_review_render_rejects_edits_outside_the_detected_highlight(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(api, "JOB_STORE_PATH", tmp_path / "jobs.json")
+    job = api.JobState(
+        id="trimmed-review-job",
+        filename="recording.mp4",
+        source_path=str(tmp_path / "recording.mp4"),
+        status="completed",
+        stage="Completed",
+        progress=100,
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+        options={"review_only": True},
+        result={"highlights": [{"start_time": 1, "end_time": 2}]},
+    )
+    api.jobs[job.id] = job
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                f"/api/jobs/{job.id}/render",
+                headers={"host": "localhost"},
+                json={
+                    "selected_indices": [0],
+                    "clip_edits": [{"index": 0, "start_time": 0.5, "end_time": 1.5}],
+                },
+            )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Clip edits must stay within the detected highlight."
         assert job.status == "completed"
     finally:
         api.jobs.pop(job.id, None)

@@ -15,6 +15,7 @@ import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-quer
 import {
   Archive,
   BadgeInfo,
+  Check,
   ChevronRight,
   Clapperboard,
   Clock3,
@@ -23,13 +24,18 @@ import {
   Gauge,
   HelpCircle,
   Home,
+  Maximize2,
   Layers3,
   MoreHorizontal,
+  Pause,
   Play,
   Plus,
   RefreshCw,
+  RotateCcw,
   Search,
   Settings,
+  SkipBack,
+  SkipForward,
   Sparkles,
   Upload,
   Video,
@@ -54,6 +60,13 @@ type Highlight = {
   action_score?: number;
 };
 type Clip = Highlight & { clip_url?: string; title?: string };
+type ClipEdit = { index: number; start_time: number; end_time: number };
+type SavedReviewState = {
+  approved_indices?: number[];
+  rejected_indices?: number[];
+  clip_edits?: ClipEdit[];
+  active_index?: number;
+};
 type Job = {
   id: string;
   filename: string;
@@ -64,7 +77,12 @@ type Job = {
   error?: string;
   created_at: string;
   result?: { highlights?: Highlight[]; shorts?: Clip[] };
-  options: { review_only?: boolean; game?: string; layout_mode?: string };
+  options: {
+    review_only?: boolean;
+    game?: string;
+    layout_mode?: string;
+    review_state?: SavedReviewState;
+  };
 };
 
 type ProjectDefaults = { game: string; layout: string };
@@ -781,11 +799,13 @@ function Review({
   jobId,
   setPage,
   onRender,
+  onSaveReview,
 }: {
   jobs: Job[];
   jobId?: string;
   setPage: (page: Page) => void;
-  onRender: (job: Job, selectedIndices: number[]) => Promise<void>;
+  onRender: (job: Job, selectedIndices: number[], clipEdits: ClipEdit[]) => Promise<void>;
+  onSaveReview: (job: Job, state: Required<SavedReviewState>) => Promise<void>;
 }) {
   const job = jobId
     ? jobs.find((item) => item.id === jobId)
@@ -793,10 +813,115 @@ function Review({
   const highlights = job?.result?.highlights ?? [];
   const shorts = job?.result?.shorts ?? [];
   const canRenderSelection = Boolean(job?.options.review_only && !shorts.length);
-  const [selected, setSelected] = useState<number[]>([]);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [approved, setApproved] = useState<number[]>([]);
+  const [rejected, setRejected] = useState<number[]>([]);
+  const [clipEdits, setClipEdits] = useState<ClipEdit[]>([]);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   useEffect(() => {
-    setSelected(highlights.map((_, index) => index));
+    const saved = job?.options.review_state;
+    const valid = (indices: number[] | undefined) =>
+      (indices ?? []).filter((index) => Number.isInteger(index) && index >= 0 && index < highlights.length);
+    setApproved(valid(saved?.approved_indices));
+    setRejected(valid(saved?.rejected_indices));
+    setClipEdits(
+      (saved?.clip_edits ?? []).filter(
+        (edit) =>
+          Number.isInteger(edit.index) &&
+          edit.index >= 0 &&
+          edit.index < highlights.length &&
+          edit.start_time >= highlights[edit.index].start_time &&
+          edit.end_time <= highlights[edit.index].end_time &&
+          edit.end_time > edit.start_time,
+      ),
+    );
+    setActiveIndex(Math.min(saved?.active_index ?? 0, Math.max(highlights.length - 1, 0)));
+    setCurrentTime(0);
   }, [job?.id, highlights.length]);
+  const activeHighlight = highlights[activeIndex];
+  const activeEdit = clipEdits.find((edit) => edit.index === activeIndex);
+  const clipStart = activeEdit?.start_time ?? activeHighlight?.start_time ?? 0;
+  const clipEnd = activeEdit?.end_time ?? activeHighlight?.end_time ?? 0;
+  const timelineEnd = Math.max(...highlights.map((highlight) => highlight.end_time), 1);
+  const sourceUrl = job ? `${api}/jobs/${job.id}/source` : '';
+
+  const jumpTo = useCallback(
+    (index: number, time = highlights[index]?.start_time ?? 0) => {
+      setActiveIndex(index);
+      setCurrentTime(time);
+      if (videoRef.current) videoRef.current.currentTime = time;
+    },
+    [highlights],
+  );
+  const updateDecision = useCallback((index: number, decision: 'approved' | 'rejected') => {
+    if (decision === 'approved') {
+      setApproved((current) => (current.includes(index) ? current : [...current, index].sort((a, b) => a - b)));
+      setRejected((current) => current.filter((item) => item !== index));
+      return;
+    }
+    setRejected((current) => (current.includes(index) ? current : [...current, index].sort((a, b) => a - b)));
+    setApproved((current) => current.filter((item) => item !== index));
+    setClipEdits((current) => current.filter((edit) => edit.index !== index));
+  }, []);
+  const updateTrim = useCallback(
+    (edge: 'start_time' | 'end_time', value: number) => {
+      if (!activeHighlight) return;
+      setClipEdits((current) => {
+        const previous = current.find((edit) => edit.index === activeIndex) ?? {
+          index: activeIndex,
+          start_time: activeHighlight.start_time,
+          end_time: activeHighlight.end_time,
+        };
+        const next = {
+          ...previous,
+          [edge]: edge === 'start_time' ? Math.min(value, previous.end_time - 0.1) : Math.max(value, previous.start_time + 0.1),
+        };
+        return [...current.filter((edit) => edit.index !== activeIndex), next];
+      });
+    },
+    [activeHighlight, activeIndex],
+  );
+  useEffect(() => {
+    if (!job || !highlights.length) return;
+    const timeout = window.setTimeout(() => {
+      setIsSaving(true);
+      setSaveError('');
+      void onSaveReview(job, {
+        approved_indices: approved,
+        rejected_indices: rejected,
+        clip_edits: clipEdits,
+        active_index: activeIndex,
+      })
+        .catch((error: Error) => setSaveError(error.message))
+        .finally(() => setIsSaving(false));
+    }, 500);
+    return () => window.clearTimeout(timeout);
+  }, [activeIndex, approved, clipEdits, highlights.length, job, onSaveReview, rejected]);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || /input|textarea|select/i.test((event.target as HTMLElement)?.tagName ?? '')) return;
+      if (event.key === ' ') {
+        event.preventDefault();
+        if (videoRef.current?.paused) void videoRef.current.play();
+        else videoRef.current?.pause();
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        jumpTo(Math.min(activeIndex + 1, highlights.length - 1));
+      } else if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        jumpTo(Math.max(activeIndex - 1, 0));
+      } else if (event.key.toLowerCase() === 'a') updateDecision(activeIndex, 'approved');
+      else if (event.key.toLowerCase() === 'r') updateDecision(activeIndex, 'rejected');
+      else if (event.key === '[') updateTrim('start_time', Math.max(activeHighlight?.start_time ?? 0, currentTime));
+      else if (event.key === ']') updateTrim('end_time', Math.min(activeHighlight?.end_time ?? currentTime, currentTime));
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeHighlight?.end_time, activeHighlight?.start_time, activeIndex, currentTime, highlights.length, jumpTo, updateDecision, updateTrim]);
   if (!job || !highlights.length)
     return (
       <PageShell eyebrow="Review" title="Choose your best moments">
@@ -812,99 +937,86 @@ function Review({
     );
   return (
     <PageShell
-      eyebrow="Review"
-      title="Choose your best moments"
+      eyebrow="AI Review Studio"
+      title="Shape the final cut"
       action={
         canRenderSelection ? (
-          <Button disabled={!selected.length} onClick={() => void onRender(job!, selected)}>
-            Render {selected.length} selected <Sparkles size={16} />
+          <Button
+            disabled={!approved.length}
+            onClick={() => void onRender(job!, approved, clipEdits)}
+          >
+            Render {approved.length} approved <Sparkles size={16} />
           </Button>
         ) : undefined
       }
     >
       <p className="page-description">
-        AI-ranked candidates from <b>{titleFromFile(job.filename)}</b>. You stay in control of the
-        final cut.
+        Source monitor and non-destructive clip decisions for <b>{titleFromFile(job.filename)}</b>.
       </p>
-      <div className="review-summary">
-        <span className="thumb large">
-          <Play size={23} />
-        </span>
-        <div>
-          <b>{job.filename}</b>
-          <span>{highlights.length} highlights detected · Ranked by gameplay intelligence</span>
-        </div>
-        <div className="summary-score">
-          <b>
-            {Math.round(
-              highlights.reduce((sum, item) => sum + (item.overall_score ?? item.score ?? 0), 0) /
-                highlights.length,
-            )}
-          </b>
-          <span>Avg. score</span>
-        </div>
-      </div>
-      <div className="highlight-grid">
-        {highlights.map((highlight, index) => {
-          const score = highlight.overall_score ?? highlight.score ?? 0;
-          const checked = selected.includes(index);
-          return (
-            <article
-              className={`highlight-card ${checked ? 'checked' : ''}`}
-              key={`${highlight.start_time}-${index}`}
+      <section className="studio" aria-label="AI Review Studio">
+        <div className="studio-monitor">
+          <div className="monitor-video">
+            <video
+              ref={videoRef}
+              src={sourceUrl}
+              preload="metadata"
+              onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+              onPlay={() => setIsPlaying(true)}
+              onPause={() => setIsPlaying(false)}
+              onError={() => setSaveError('The original upload is unavailable for preview.')}
+            />
+            <button
+              type="button"
+              className="monitor-play"
+              aria-label={isPlaying ? 'Pause source video' : 'Play source video'}
+              onClick={() => (videoRef.current?.paused ? void videoRef.current.play() : videoRef.current?.pause())}
             >
-              <button
-                type="button"
-                className="check"
-                aria-label={`${checked ? 'Remove' : 'Add'} highlight ${index + 1}`}
-                aria-pressed={checked}
-                onClick={() =>
-                  setSelected((current) =>
-                    checked ? current.filter((item) => item !== index) : [...current, index],
-                  )
-                }
-              >
-                {checked ? '✓' : ''}
-              </button>
-              <div className="highlight-preview">
-                <Play size={21} />
-                <span>
-                  {formatSeconds(highlight.start_time)} – {formatSeconds(highlight.end_time)}
-                </span>
-              </div>
-              <div className="highlight-content">
-                <div>
-                  <span className="rank">#{index + 1} highlight</span>
-                  <b className="score">
-                    {score}
-                    <small>/100</small>
-                  </b>
-                </div>
-                <h3>{highlight.hook_sentence || 'A moment worth replaying'}</h3>
-                <p>
-                  {highlight.reason_selected ||
-                    highlight.virality_reason ||
-                    'Strong gameplay moment identified by the AI.'}
-                </p>
-                <div className="score-bars">
-                  {[
-                    ['Gameplay', highlight.gameplay_score],
-                    ['Emotion', highlight.emotion_score],
-                    ['Action', highlight.action_score],
-                  ].map(([label, value]) => (
-                    <span key={String(label)}>
-                      {label}
-                      <i>
-                        <b style={{ width: `${Number(value ?? score)}%` }} />
-                      </i>
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </article>
-          );
-        })}
-      </div>
+              {isPlaying ? <Pause size={22} /> : <Play size={22} />}
+            </button>
+            <span className="monitor-label">SOURCE · {job.filename}</span>
+          </div>
+          <div className="monitor-controls">
+            <Button variant="quiet" aria-label="Previous highlight" onClick={() => jumpTo(Math.max(activeIndex - 1, 0))}><SkipBack size={17} /></Button>
+            <Button variant="quiet" onClick={() => (videoRef.current?.paused ? void videoRef.current.play() : videoRef.current?.pause())}>{isPlaying ? <Pause size={15} /> : <Play size={15} />} {isPlaying ? 'Pause' : 'Play'}</Button>
+            <Button variant="quiet" aria-label="Next highlight" onClick={() => jumpTo(Math.min(activeIndex + 1, highlights.length - 1))}><SkipForward size={17} /></Button>
+            <span>{formatSeconds(currentTime)} / {formatSeconds(timelineEnd)}</span>
+            <Maximize2 size={15} aria-hidden="true" />
+          </div>
+          <div className="studio-timeline" aria-label="Highlight timeline">
+            <div className="timeline-ruler"><span>00:00</span><span>{formatSeconds(timelineEnd / 2)}</span><span>{formatSeconds(timelineEnd)}</span></div>
+            <div className="timeline-track" onClick={(event) => {
+              const bounds = event.currentTarget.getBoundingClientRect();
+              const time = ((event.clientX - bounds.left) / bounds.width) * timelineEnd;
+              setCurrentTime(time); if (videoRef.current) videoRef.current.currentTime = time;
+            }}>
+              <i className="timeline-playhead" style={{ left: `${Math.min((currentTime / timelineEnd) * 100, 100)}%` }} />
+              {highlights.map((highlight, index) => (
+                <button key={`${highlight.start_time}-${index}`} type="button" className={`timeline-clip ${activeIndex === index ? 'active' : ''} ${approved.includes(index) ? 'approved' : ''} ${rejected.includes(index) ? 'rejected' : ''}`} style={{ left: `${(highlight.start_time / timelineEnd) * 100}%`, width: `${Math.max(((highlight.end_time - highlight.start_time) / timelineEnd) * 100, 2)}%` }} onClick={(event) => { event.stopPropagation(); jumpTo(index); }} aria-label={`Jump to highlight ${index + 1}`}><span>{index + 1}</span></button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <aside className="studio-inspector">
+          <div className="studio-status"><span>{isSaving ? 'Saving review…' : 'All changes saved'}</span><b>{approved.length} approved</b></div>
+          {saveError && <p className="studio-error" role="alert">{saveError}</p>}
+          <div className="clip-list" aria-label="Detected highlights">
+            {highlights.map((highlight, index) => {
+              const score = Math.round(highlight.overall_score ?? highlight.score ?? 0);
+              const decision = approved.includes(index) ? 'approved' : rejected.includes(index) ? 'rejected' : 'pending';
+              return <button type="button" key={`${highlight.start_time}-${index}`} className={`clip-row ${activeIndex === index ? 'active' : ''}`} onClick={() => jumpTo(index)}><span className={`clip-decision ${decision}`}>{decision === 'approved' ? <Check size={12} /> : index + 1}</span><span><b>{highlight.hook_sentence || `Highlight ${index + 1}`}</b><small>{formatSeconds(highlight.start_time)} – {formatSeconds(highlight.end_time)} · {score}/100</small></span></button>;
+            })}
+          </div>
+          <div className="clip-editor">
+            <div><span>SELECTED CLIP</span><b>Highlight {activeIndex + 1}</b></div>
+            <p>{activeHighlight?.reason_selected || activeHighlight?.virality_reason || 'Strong gameplay moment identified by the AI.'}</p>
+            <div className="trim-values"><span>IN <b>{formatSeconds(clipStart)}</b></span><span>OUT <b>{formatSeconds(clipEnd)}</b></span></div>
+            <label>Trim start<input type="range" min={activeHighlight?.start_time ?? 0} max={Math.max((activeHighlight?.end_time ?? 0) - 0.1, 0)} step="0.1" value={clipStart} onChange={(event) => updateTrim('start_time', Number(event.target.value))} /></label>
+            <label>Trim end<input type="range" min={(activeHighlight?.start_time ?? 0) + 0.1} max={activeHighlight?.end_time ?? 0} step="0.1" value={clipEnd} onChange={(event) => updateTrim('end_time', Number(event.target.value))} /></label>
+            <div className="clip-actions"><Button variant="secondary" onClick={() => updateDecision(activeIndex, 'rejected')}><RotateCcw size={15} /> Reject</Button><Button onClick={() => updateDecision(activeIndex, 'approved')}><Check size={15} /> Approve</Button></div>
+            <p className="shortcut-note">Space play/pause · ← → navigate · A approve · R reject · [ ] trim</p>
+          </div>
+        </aside>
+      </section>
       {shorts.length > 0 && (
         <section className="rendered-clips" aria-label="Rendered clips">
           <div className="section-heading">
@@ -1194,11 +1306,22 @@ function App() {
     setActiveJob(await response.json());
     await queryClient.invalidateQueries({ queryKey: ['jobs'] });
   }, []);
-  const renderSelection = useCallback(async (job: Job, selectedIndices: number[]) => {
+  const saveReview = useCallback(async (job: Job, state: Required<SavedReviewState>) => {
+    const response = await fetch(`${api}/jobs/${job.id}/review`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(state),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail ?? 'The review could not be saved.');
+    }
+  }, []);
+  const renderSelection = useCallback(async (job: Job, selectedIndices: number[], clipEdits: ClipEdit[]) => {
     const response = await fetch(`${api}/jobs/${job.id}/render`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ selected_indices: selectedIndices }),
+      body: JSON.stringify({ selected_indices: selectedIndices, clip_edits: clipEdits }),
     });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
@@ -1231,6 +1354,7 @@ function App() {
                 jobId={reviewJobId}
                 setPage={setPage}
                 onRender={renderSelection}
+                onSaveReview={saveReview}
               />
             );
           case 'history':

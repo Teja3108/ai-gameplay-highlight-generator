@@ -73,8 +73,22 @@ jobs: dict[str, JobState] = {}
 processes: dict[str, asyncio.subprocess.Process] = {}
 
 
+class ClipEdit(BaseModel):
+    index: int = Field(ge=0)
+    start_time: float = Field(ge=0)
+    end_time: float = Field(gt=0)
+
+
 class RenderRequest(BaseModel):
     selected_indices: list[int] = Field(min_length=1, max_length=15)
+    clip_edits: list[ClipEdit] = Field(default_factory=list, max_length=15)
+
+
+class ReviewState(BaseModel):
+    approved_indices: list[int] = Field(default_factory=list, max_length=15)
+    rejected_indices: list[int] = Field(default_factory=list, max_length=15)
+    clip_edits: list[ClipEdit] = Field(default_factory=list, max_length=15)
+    active_index: int = Field(default=0, ge=0)
 
 
 REVIEW_RENDER_SCRIPT = """
@@ -249,7 +263,9 @@ async def run_engine(job: JobState, request: GenerateRequest) -> None:
         processes.pop(job.id, None)
 
 
-async def run_review_render(job: JobState, selected_indices: list[int]) -> None:
+async def run_review_render(
+    job: JobState, selected_indices: list[int], clip_edits: list[ClipEdit]
+) -> None:
     """Render previously reviewed candidates using the engine's existing clip renderer."""
 
     if job.status == "cancelled":
@@ -261,7 +277,14 @@ async def run_review_render(job: JobState, selected_indices: list[int]) -> None:
         return
 
     highlights = job.result.get("highlights", [])
-    selected_highlights = [highlights[index] for index in selected_indices]
+    edits_by_index = {edit.index: edit for edit in clip_edits}
+    selected_highlights = []
+    for index in selected_indices:
+        highlight = dict(highlights[index])
+        if edit := edits_by_index.get(index):
+            highlight["start_time"] = edit.start_time
+            highlight["end_time"] = edit.end_time
+        selected_highlights.append(highlight)
     render_root = RESULT_ROOT / job.id
     render_root.mkdir(parents=True, exist_ok=True)
     payload_path = render_root / "selection.json"
@@ -419,6 +442,58 @@ async def get_job(job_id: str) -> dict[str, Any]:
     return serialise(job)
 
 
+@router.get("/jobs/{job_id}/source")
+async def get_job_source(job_id: str) -> FileResponse:
+    """Stream a job's original upload without exposing its local filesystem path."""
+
+    job = jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    source = Path(job.source_path).resolve()
+    if not source.is_file() or not allowed_source(source):
+        raise HTTPException(status_code=404, detail="The original upload is no longer available.")
+    return FileResponse(source)
+
+
+@router.put("/jobs/{job_id}/review")
+async def save_review_state(job_id: str, payload: ReviewState) -> dict[str, Any]:
+    """Persist non-destructive review decisions alongside the existing job state."""
+
+    job = jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    highlights = (job.result or {}).get("highlights", [])
+    all_indices = payload.approved_indices + payload.rejected_indices
+    if (
+        len(set(all_indices)) != len(all_indices)
+        or any(index < 0 or index >= len(highlights) for index in all_indices)
+        or payload.active_index >= max(len(highlights), 1)
+    ):
+        raise HTTPException(
+            status_code=400, detail="Review state contains invalid highlight choices."
+        )
+    if len({edit.index for edit in payload.clip_edits}) != len(payload.clip_edits):
+        raise HTTPException(status_code=400, detail="Review state contains duplicate clip edits.")
+    for edit in payload.clip_edits:
+        if edit.index not in payload.approved_indices or edit.index >= len(highlights):
+            raise HTTPException(
+                status_code=400, detail="Clip edits must belong to approved highlights."
+            )
+        original = highlights[edit.index]
+        if (
+            edit.end_time <= edit.start_time
+            or edit.start_time < float(original["start_time"])
+            or edit.end_time > float(original["end_time"])
+        ):
+            raise HTTPException(
+                status_code=400, detail="Clip edits must stay within the detected highlight."
+            )
+    job.options["review_state"] = payload.model_dump()
+    job.updated_at = now()
+    save_jobs()
+    return serialise(job)
+
+
 @router.post("/jobs/{job_id}/cancel")
 async def cancel_job(job_id: str) -> dict[str, Any]:
     job = jobs.get(job_id)
@@ -481,6 +556,22 @@ async def render_selected_clips(job_id: str, payload: RenderRequest) -> dict[str
         index < 0 or index >= len(highlights) for index in selected_indices
     ):
         raise HTTPException(status_code=400, detail="Choose valid, unique highlight candidates.")
+    if len({edit.index for edit in payload.clip_edits}) != len(payload.clip_edits):
+        raise HTTPException(status_code=400, detail="Choose at most one edit for each highlight.")
+    for edit in payload.clip_edits:
+        if edit.index not in selected_indices or edit.index >= len(highlights):
+            raise HTTPException(
+                status_code=400, detail="Clip edits must belong to selected highlights."
+            )
+        original = highlights[edit.index]
+        if (
+            edit.end_time <= edit.start_time
+            or edit.start_time < float(original["start_time"])
+            or edit.end_time > float(original["end_time"])
+        ):
+            raise HTTPException(
+                status_code=400, detail="Clip edits must stay within the detected highlight."
+            )
     active_jobs = sum(candidate.status in {"queued", "processing"} for candidate in jobs.values())
     if active_jobs >= MAX_CONCURRENT_JOBS:
         raise HTTPException(
@@ -491,7 +582,7 @@ async def render_selected_clips(job_id: str, payload: RenderRequest) -> dict[str
         )
     job.status, job.stage, job.progress, job.error = "queued", "Preparing", 0, None
     log(job, "Rendering selected highlights.")
-    asyncio.create_task(run_review_render(job, selected_indices))
+    asyncio.create_task(run_review_render(job, selected_indices, payload.clip_edits))
     return serialise(job)
 
 
