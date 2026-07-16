@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app.api import router
+from app.api import load_jobs, router
 from app.core.container import create_container
 from app.core.logging import configure_logging
 
@@ -19,6 +19,7 @@ app = FastAPI(
     redoc_url=None,
     openapi_url=None,
 )
+load_jobs()
 app.state.container = create_container()
 allowed_origins = [
     origin.strip()

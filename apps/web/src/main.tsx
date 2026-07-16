@@ -14,8 +14,6 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import {
   Archive,
-  BarChart3,
-  Bell,
   ChevronRight,
   Clapperboard,
   Clock3,
@@ -39,8 +37,7 @@ import {
 } from 'lucide-react';
 import './styles.css';
 
-type Page =
-  'dashboard' | 'generate' | 'review' | 'history' | 'projects' | 'analytics' | 'settings' | 'help';
+type Page = 'dashboard' | 'generate' | 'review' | 'history' | 'projects' | 'settings' | 'help';
 type Highlight = {
   start_time: number;
   end_time: number;
@@ -65,9 +62,36 @@ type Job = {
   error?: string;
   created_at: string;
   result?: { highlights?: Highlight[]; shorts?: Clip[] };
+  options: { review_only?: boolean; game?: string; layout_mode?: string };
 };
 
+type ProjectDefaults = { game: string; layout: string };
+
 const api = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api';
+const settingsKey = 'highlight-ai-project-defaults';
+const defaultProjectDefaults: ProjectDefaults = { game: 'auto', layout: 'auto' };
+
+function loadProjectDefaults(): ProjectDefaults {
+  try {
+    const saved = localStorage.getItem(settingsKey);
+    if (!saved) return defaultProjectDefaults;
+    const value = JSON.parse(saved) as Partial<ProjectDefaults>;
+    return {
+      game: ['auto', 'tlou', 'gta6', 'cyberpunk'].includes(value.game ?? '')
+        ? value.game!
+        : defaultProjectDefaults.game,
+      layout: ['auto', 'single', 'dialogue', 'split'].includes(value.layout ?? '')
+        ? value.layout!
+        : defaultProjectDefaults.layout,
+    };
+  } catch {
+    return defaultProjectDefaults;
+  }
+}
+
+function clipFileUrl(path?: string) {
+  return path ? `${api}/files?path=${encodeURIComponent(path)}` : undefined;
+}
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 1_500, retry: 1, refetchOnWindowFocus: false } },
 });
@@ -85,7 +109,6 @@ const nav: { id: Page; label: string; icon: typeof Home }[] = [
   { id: 'review', label: 'Review', icon: Layers3 },
   { id: 'history', label: 'History', icon: Clock3 },
   { id: 'projects', label: 'Projects', icon: FolderKanban },
-  { id: 'analytics', label: 'Analytics', icon: BarChart3 },
 ];
 
 function useJobs() {
@@ -221,9 +244,9 @@ function Sidebar({ page, setPage }: { page: Page; setPage: (page: Page) => void 
       </div>
       <div className="workspace">
         <span>WORKSPACE</span>
-        <button type="button">
+        <div>
           Senpai Plays <ChevronRight size={14} />
-        </button>
+        </div>
       </div>
       <nav aria-label="Main navigation">
         {nav.map(({ id, label, icon: Icon }) => (
@@ -283,13 +306,7 @@ function PageShell({
           <p className="eyebrow">{eyebrow}</p>
           <h1>{title}</h1>
         </div>
-        <div className="top-actions">
-          {action}
-          <button className="icon-button" type="button" aria-label="Notifications">
-            <Bell size={18} />
-            <i />
-          </button>
-        </div>
+        <div className="top-actions">{action}</div>
       </header>
       {children}
     </main>
@@ -332,12 +349,19 @@ function Dashboard({
   jobs,
   isLoading,
   setPage,
+  onOpenJob,
 }: {
   jobs: Job[];
   isLoading: boolean;
   setPage: (page: Page) => void;
+  onOpenJob: (job: Job) => void;
 }) {
   const completed = jobs.filter((job) => job.status === 'completed');
+  const scores = completed.flatMap((job) =>
+    (job.result?.highlights ?? []).map(
+      (highlight) => highlight.overall_score ?? highlight.score ?? 0,
+    ),
+  );
   const statistics: [string, string, ComponentType<{ size?: number }>, string][] = [
     ['Videos processed', String(jobs.length), Video, 'All time'],
     [
@@ -346,8 +370,14 @@ function Dashboard({
       Sparkles,
       'All time',
     ],
-    ['Avg. AI score', completed.length ? '87.4' : '—', Gauge, 'Last 30 days'],
-    ['Processing time', completed.length ? '4m 38s' : '—', Clock3, 'Average per video'],
+    [
+      'Avg. AI score',
+      scores.length
+        ? String(Math.round(scores.reduce((total, score) => total + score, 0) / scores.length))
+        : '—',
+      Gauge,
+      'Completed projects',
+    ],
   ];
   return (
     <PageShell
@@ -405,13 +435,7 @@ function Dashboard({
         ) : jobs.length ? (
           jobs
             .slice(0, 4)
-            .map((job) => (
-              <ProjectRow
-                key={job.id}
-                job={job}
-                onOpen={() => setPage(job.status === 'completed' ? 'review' : 'history')}
-              />
-            ))
+            .map((job) => <ProjectRow key={job.id} job={job} onOpen={() => onOpenJob(job)} />)
         ) : (
           <EmptyState
             title="Your creative workspace is ready"
@@ -425,15 +449,14 @@ function Dashboard({
   );
 }
 
-function Generate({ onJob }: { onJob: (job: Job) => void }) {
+function Generate({ defaults, onJob }: { defaults: ProjectDefaults; onJob: (job: Job) => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File>();
   const [dragging, setDragging] = useState(false);
   const [clips, setClips] = useState(5);
-  const [game, setGame] = useState('auto');
-  const [layout, setLayout] = useState('auto');
+  const [game, setGame] = useState(defaults.game);
+  const [layout, setLayout] = useState(defaults.layout);
   const [review, setReview] = useState(false);
-  const [score, setScore] = useState(70);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const chooseFile = (selected?: File) => {
@@ -575,14 +598,6 @@ function Generate({ onJob }: { onJob: (job: Job) => void }) {
                   <option value="split">Split screen</option>
                 </select>
               </label>
-              <label>
-                Subtitle style
-                <select defaultValue="kinetic">
-                  <option value="kinetic">Bold kinetic</option>
-                  <option value="minimal">Minimal</option>
-                  <option value="creator">Creator</option>
-                </select>
-              </label>
             </div>
           </div>
         </section>
@@ -602,18 +617,6 @@ function Generate({ onJob }: { onJob: (job: Job) => void }) {
               </button>
             ))}
           </div>
-          <div className="range-label">
-            <span>Minimum score</span>
-            <b>{score}</b>
-          </div>
-          <input
-            aria-label="Minimum highlight score"
-            type="range"
-            min="50"
-            max="95"
-            value={score}
-            onChange={(event) => setScore(Number(event.target.value))}
-          />
           <div className="switch-row">
             <div>
               <b>Review before rendering</b>
@@ -669,15 +672,24 @@ function Processing({
 }: {
   job: Job;
   onComplete: () => void;
-  onRetry: () => void;
+  onRetry: () => Promise<void>;
 }) {
   const current = Math.max(0, stages.indexOf(job.stage));
+  const [retryError, setRetryError] = useState('');
   useEffect(() => {
     if (job.status === 'completed') onComplete();
   }, [job.status, onComplete]);
   const cancel = async () => {
     await fetch(`${api}/jobs/${job.id}/cancel`, { method: 'POST' });
     queryClient.invalidateQueries({ queryKey: ['jobs'] });
+  };
+  const retry = async () => {
+    setRetryError('');
+    try {
+      await onRetry();
+    } catch (reason) {
+      setRetryError(reason instanceof Error ? reason.message : 'The project could not be resumed.');
+    }
   };
   return (
     <PageShell
@@ -720,9 +732,10 @@ function Processing({
                 job.error ||
                 'Your source video may be unsupported or a local dependency needs attention.'
               }
-              onRetry={onRetry}
+              onRetry={() => void retry()}
             />
           )}
+          {retryError && <ErrorNotice title="Couldn’t resume this project" detail={retryError} />}
         </section>
         <aside className="log-card">
           <div>
@@ -752,11 +765,23 @@ function Processing({
   );
 }
 
-function Review({ jobs, setPage }: { jobs: Job[]; setPage: (page: Page) => void }) {
-  const job =
-    jobs.find((item) => item.status === 'completed' && item.result?.highlights?.length) ??
-    jobs.find((item) => item.status === 'completed');
+function Review({
+  jobs,
+  jobId,
+  setPage,
+  onRender,
+}: {
+  jobs: Job[];
+  jobId?: string;
+  setPage: (page: Page) => void;
+  onRender: (job: Job, selectedIndices: number[]) => Promise<void>;
+}) {
+  const job = jobId
+    ? jobs.find((item) => item.id === jobId)
+    : jobs.find((item) => item.status === 'completed' && item.result?.highlights?.length);
   const highlights = job?.result?.highlights ?? [];
+  const shorts = job?.result?.shorts ?? [];
+  const canRenderSelection = Boolean(job?.options.review_only && !shorts.length);
   const [selected, setSelected] = useState<number[]>([]);
   useEffect(() => {
     setSelected(highlights.map((_, index) => index));
@@ -779,9 +804,11 @@ function Review({ jobs, setPage }: { jobs: Job[]; setPage: (page: Page) => void 
       eyebrow="Review"
       title="Choose your best moments"
       action={
-        <Button disabled={!selected.length}>
-          Render {selected.length} selected <Sparkles size={16} />
-        </Button>
+        canRenderSelection ? (
+          <Button disabled={!selected.length} onClick={() => void onRender(job!, selected)}>
+            Render {selected.length} selected <Sparkles size={16} />
+          </Button>
+        ) : undefined
       }
     >
       <p className="page-description">
@@ -867,6 +894,41 @@ function Review({ jobs, setPage }: { jobs: Job[]; setPage: (page: Page) => void 
           );
         })}
       </div>
+      {shorts.length > 0 && (
+        <section className="rendered-clips" aria-label="Rendered clips">
+          <div className="section-heading">
+            <div>
+              <h2>Rendered clips</h2>
+              <p>Ready to preview or save from your browser.</p>
+            </div>
+          </div>
+          <div className="highlight-grid">
+            {shorts.map((clip, index) => {
+              const url = clipFileUrl(clip.clip_url);
+              return (
+                <article className="highlight-card" key={`${clip.clip_url}-${index}`}>
+                  {url ? (
+                    <video className="clip-video" controls preload="metadata" src={url} />
+                  ) : (
+                    <div className="highlight-preview">This clip could not be rendered.</div>
+                  )}
+                  <div className="highlight-content">
+                    <h3>{clip.title || `Clip ${index + 1}`}</h3>
+                    <p>
+                      {formatSeconds(clip.start_time)} – {formatSeconds(clip.end_time)}
+                    </p>
+                    {url && (
+                      <a className="button secondary" href={url} download>
+                        Save clip
+                      </a>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      )}
     </PageShell>
   );
 }
@@ -876,11 +938,13 @@ function ProjectsTable({
   jobs,
   isLoading,
   setPage,
+  onOpenJob,
 }: {
   type: 'history' | 'projects';
   jobs: Job[];
   isLoading: boolean;
   setPage: (page: Page) => void;
+  onOpenJob: (job: Job) => void;
 }) {
   const [search, setSearch] = useState('');
   const [latest, setLatest] = useState(true);
@@ -939,13 +1003,7 @@ function ProjectsTable({
         {isLoading ? (
           <LoadingRows />
         ) : filtered.length ? (
-          filtered.map((job) => (
-            <ProjectRow
-              key={job.id}
-              job={job}
-              onOpen={() => setPage(job.status === 'completed' ? 'review' : 'history')}
-            />
-          ))
+          filtered.map((job) => <ProjectRow key={job.id} job={job} onOpen={() => onOpenJob(job)} />)
         ) : (
           <EmptyState
             icon={isHistory ? Clock3 : FolderKanban}
@@ -972,111 +1030,46 @@ function ProjectsTable({
   );
 }
 
-function Analytics({ jobs }: { jobs: Job[] }) {
-  const completed = jobs.filter((job) => job.status === 'completed');
-  return (
-    <PageShell eyebrow="Insights" title="Your creative performance">
-      <p className="page-description">See how your AI editing workflow is performing over time.</p>
-      <div className="analytics-grid">
-        <section className="chart-card wide">
-          <div>
-            <h3>Clips created</h3>
-            <p>{completed.length ? 'Last 6 weeks' : 'Your activity will appear here'}</p>
-          </div>
-          {completed.length ? (
-            <div className="bar-chart">
-              {[18, 38, 28, 61, 44, 78, 56, 88, 68, 92, 71, 82].map((height, index) => (
-                <i key={index} style={{ height: `${height}%` }} />
-              ))}
-            </div>
-          ) : (
-            <div className="chart-empty">
-              Create your first project to start building creative insights.
-            </div>
-          )}
-        </section>
-        <section className="chart-card">
-          <h3>Top game profiles</h3>
-          <div className="donut">
-            <b>{completed.length}</b>
-            <span>projects</span>
-          </div>
-          <p className="muted">Profile data builds as projects complete.</p>
-        </section>
-        <section className="chart-card">
-          <h3>Average AI score</h3>
-          <strong className="big-number">{completed.length ? '87.4' : '—'}</strong>
-          <span className="positive">
-            {completed.length ? '+4.8% this month' : 'Complete projects to compare scores'}
-          </span>
-        </section>
-        <section className="chart-card">
-          <h3>Rendering usage</h3>
-          <strong className="big-number">
-            {completed.reduce((total, job) => total + (job.result?.shorts?.length ?? 0), 0)}
-          </strong>
-          <span className="muted">clips this month</span>
-        </section>
-      </div>
-    </PageShell>
-  );
-}
-
-function SettingsPage() {
-  const [gpu, setGpu] = useState(true);
+function SettingsPage({
+  defaults,
+  onSave,
+}: {
+  defaults: ProjectDefaults;
+  onSave: (value: ProjectDefaults) => void;
+}) {
   return (
     <PageShell eyebrow="Workspace" title="Settings">
       <div className="settings-layout">
-        <aside aria-label="Settings sections">
-          <button className="active" type="button">
-            General
-          </button>
-          <button type="button">Processing</button>
-          <button type="button">Integrations</button>
-          <button type="button">Storage</button>
-          <button type="button">Advanced</button>
-        </aside>
         <section className="settings-panel">
           <h2>General preferences</h2>
-          <p>Set defaults for every new project. They can always be changed before processing.</p>
+          <p>
+            Set defaults for new projects. They are saved in this browser and can be changed before
+            processing.
+          </p>
           <label>
             Default game profile
-            <select defaultValue="auto">
+            <select
+              value={defaults.game}
+              onChange={(event) => onSave({ ...defaults, game: event.target.value })}
+            >
               <option value="auto">Auto-detect</option>
-              <option>The Last of Us</option>
-              <option>GTA VI</option>
+              <option value="tlou">The Last of Us</option>
+              <option value="gta6">GTA VI</option>
+              <option value="cyberpunk">Cyberpunk</option>
             </select>
           </label>
           <label>
             Default layout
-            <select defaultValue="adaptive">
-              <option value="adaptive">Adaptive</option>
-              <option>Single focus</option>
+            <select
+              value={defaults.layout}
+              onChange={(event) => onSave({ ...defaults, layout: event.target.value })}
+            >
+              <option value="auto">Adaptive</option>
+              <option value="single">Single focus</option>
+              <option value="dialogue">Dialogue</option>
+              <option value="split">Split screen</option>
             </select>
           </label>
-          <div className="switch-row">
-            <div>
-              <b>Hardware acceleration</b>
-              <span>Use the GPU when supported by local processing tools.</span>
-            </div>
-            <button
-              type="button"
-              className={`switch ${gpu ? 'on' : ''}`}
-              role="switch"
-              aria-checked={gpu}
-              aria-label="Hardware acceleration"
-              onClick={() => setGpu((value) => !value)}
-            >
-              <i />
-            </button>
-          </div>
-          <hr />
-          <h3>API configuration</h3>
-          <p className="muted">
-            Keys are stored only in your local environment; they are never exposed in this
-            interface.
-          </p>
-          <Button variant="secondary">Open local configuration</Button>
         </section>
       </div>
     </PageShell>
@@ -1084,28 +1077,25 @@ function SettingsPage() {
 }
 
 function Help() {
-  const cards = [
-    ['Get started', 'Learn the workflow from upload to export.'],
-    ['Processing guides', 'Make the most of game profiles and scoring.'],
-    ['Troubleshooting', 'Diagnose local engine and render issues.'],
-  ];
   return (
     <PageShell eyebrow="Support" title="How can we help?">
       <p className="page-description">
         Clear, local-first guidance for every stage of your workflow.
       </p>
-      <div className="help-grid">
-        {cards.map(([title, copy]) => (
-          <button className="help-card" type="button" key={title}>
-            <span className="icon-box">
-              <HelpCircle size={20} />
-            </span>
-            <h3>{title}</h3>
-            <p>{copy}</p>
-            <ChevronRight size={17} />
-          </button>
-        ))}
-      </div>
+      <section className="settings-panel">
+        <h2>Workflow</h2>
+        <p>
+          Upload a supported gameplay video, choose the number of clips, then start processing. Use
+          review mode to select candidates before rendering; otherwise completed clips appear in
+          Review for preview and saving.
+        </p>
+        <h2>Troubleshooting</h2>
+        <p>
+          Start the API before opening the web app. If processing fails, check that the engine paths
+          in <code>.env</code> point to an installed engine and Python environment, then resume the
+          project from its processing screen.
+        </p>
+      </section>
     </PageShell>
   );
 }
@@ -1113,38 +1103,100 @@ function Help() {
 function App() {
   const [page, setPage] = useState<Page>('dashboard');
   const [activeJob, setActiveJob] = useState<Job>();
+  const [reviewJobId, setReviewJobId] = useState<string>();
+  const [defaults, setDefaults] = useState<ProjectDefaults>(loadProjectDefaults);
   const { data: jobs = [], isError, isLoading, refetch } = useJobs();
   const liveJob = activeJob
     ? (jobs.find((job) => job.id === activeJob.id) ?? activeJob)
     : undefined;
   const showReview = useCallback(() => {
-    setActiveJob(undefined);
+    setReviewJobId(activeJob?.id);
     setPage('review');
+  }, [activeJob?.id]);
+  const openProject = useCallback((job: Job) => {
+    if (job.status === 'completed') {
+      setReviewJobId(job.id);
+      setActiveJob(undefined);
+      setPage('review');
+      return;
+    }
+    setActiveJob(job);
+    setPage('history');
+  }, []);
+  const saveDefaults = useCallback((value: ProjectDefaults) => {
+    localStorage.setItem(settingsKey, JSON.stringify(value));
+    setDefaults(value);
+  }, []);
+  const resumeProject = useCallback(async (job: Job) => {
+    const response = await fetch(`${api}/jobs/${job.id}/resume`, { method: 'POST' });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail ?? 'The project could not be resumed.');
+    }
+    setActiveJob(await response.json());
+    await queryClient.invalidateQueries({ queryKey: ['jobs'] });
+  }, []);
+  const renderSelection = useCallback(async (job: Job, selectedIndices: number[]) => {
+    const response = await fetch(`${api}/jobs/${job.id}/render`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ selected_indices: selectedIndices }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail ?? 'Selected clips could not be rendered.');
+    }
+    setActiveJob(await response.json());
+    await queryClient.invalidateQueries({ queryKey: ['jobs'] });
   }, []);
   const content =
     liveJob && ['queued', 'processing', 'failed'].includes(liveJob.status) ? (
-      <Processing job={liveJob} onComplete={showReview} onRetry={() => setPage('generate')} />
+      <Processing job={liveJob} onComplete={showReview} onRetry={() => resumeProject(liveJob)} />
     ) : (
       (() => {
         switch (page) {
           case 'dashboard':
-            return <Dashboard jobs={jobs} isLoading={isLoading} setPage={setPage} />;
+            return (
+              <Dashboard
+                jobs={jobs}
+                isLoading={isLoading}
+                setPage={setPage}
+                onOpenJob={openProject}
+              />
+            );
           case 'generate':
-            return <Generate onJob={(job) => setActiveJob(job)} />;
+            return <Generate defaults={defaults} onJob={(job) => setActiveJob(job)} />;
           case 'review':
-            return <Review jobs={jobs} setPage={setPage} />;
+            return (
+              <Review
+                jobs={jobs}
+                jobId={reviewJobId}
+                setPage={setPage}
+                onRender={renderSelection}
+              />
+            );
           case 'history':
             return (
-              <ProjectsTable type="history" jobs={jobs} isLoading={isLoading} setPage={setPage} />
+              <ProjectsTable
+                type="history"
+                jobs={jobs}
+                isLoading={isLoading}
+                setPage={setPage}
+                onOpenJob={openProject}
+              />
             );
           case 'projects':
             return (
-              <ProjectsTable type="projects" jobs={jobs} isLoading={isLoading} setPage={setPage} />
+              <ProjectsTable
+                type="projects"
+                jobs={jobs}
+                isLoading={isLoading}
+                setPage={setPage}
+                onOpenJob={openProject}
+              />
             );
-          case 'analytics':
-            return <Analytics jobs={jobs} />;
           case 'settings':
-            return <SettingsPage />;
+            return <SettingsPage defaults={defaults} onSave={saveDefaults} />;
           default:
             return <Help />;
         }

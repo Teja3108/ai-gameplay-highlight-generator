@@ -91,7 +91,7 @@ button:disabled {
   font-weight: 750;
   letter-spacing: 0.1em;
 }
-.workspace button {
+.workspace > div {
   display: flex;
   width: 100%;
   justify-content: space-between;
@@ -1218,10 +1218,7 @@ input[type='range'] {
   font-size: 10px;
 }
 .settings-layout {
-  display: grid;
-  grid-template-columns: 180px 1fr;
-  gap: 18px;
-  max-width: 880px;
+  max-width: 700px;
 }
 .settings-layout aside {
   display: grid;
@@ -1265,6 +1262,13 @@ input[type='range'] {
 }
 .settings-panel h3 {
   font-size: 13px;
+}
+.clip-video {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  background: #090a0d;
+  object-fit: contain;
 }
 .help-grid {
   display: grid;
@@ -1507,16 +1511,6 @@ input[type='range'] {
   }
   .project-meta {
     display: none;
-  }
-  .settings-layout {
-    grid-template-columns: 1fr;
-  }
-  .settings-layout aside {
-    display: flex;
-    overflow: auto;
-  }
-  .settings-layout aside button {
-    white-space: nowrap;
   }
   .stages {
     grid-template-columns: repeat(3, 1fr);

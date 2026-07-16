@@ -1,61 +1,140 @@
 # AI Gameplay Highlight Generator
 
-A local-first monorepo for a gameplay-highlight generation platform. The web application uploads a
-recording to the local FastAPI service, which orchestrates the existing gameplay engine CLI. This
-repository is not a multi-user hosted service: do not expose its API to a network.
+A local-first application for turning gameplay recordings into vertical highlight clips. The React web app uploads a recording to the FastAPI service; the service runs the existing local AI engine, persists project state, and exposes completed clips for in-browser preview and saving.
 
-## Repository layout
+This is a single-user local application. Do not expose the API or its storage directory to an untrusted network.
 
-```text
-apps/
-  api/             FastAPI service shell
-  web/             React + TypeScript + Vite web application shell
-  desktop/         Electron desktop application shell
-packages/
-  shared-types/    Shared TypeScript contracts package
-```
+## Installation
 
-## Prerequisites
+Prerequisites:
 
 - Node.js 20.18+ and npm 10.8+
 - Python 3.9+
-- [uv](https://docs.astral.sh/uv/) for Python dependency management
-- Docker Desktop (optional, for containers)
+- [uv](https://docs.astral.sh/uv)
+- The local AI engine repository and its Python environment
+- FFmpeg and the dependencies required by the engine
 
-## Setup
+Install the web and API dependencies:
 
 ```bash
+git clone <repository-url>
+cd ai-gameplay-highlight-generator
 cp .env.example .env
 npm install
 uv sync --project apps/api --extra dev
 ```
 
-## Common commands
-
-```bash
-# Web application
-npm run dev:web
-
-# Desktop shell
-npm run dev:desktop
-
-# API service (requires GAMEPLAY_ENGINE_ROOT and GAMEPLAY_ENGINE_PYTHON in .env)
-uv run --project apps/api uvicorn app.main:app --reload
-
-# Quality checks
-npm run lint
-npm run typecheck
-npm run format:check
-cd apps/api && uv run ruff check . && uv run black --check . && uv run pytest
-
-# Container configuration / API service
-docker compose config
-docker compose up --build api
-```
-
 ## Configuration
 
-Environment defaults are documented in [`.env.example`](.env.example). Do not commit real environment files or credentials.
+Edit `.env` before starting the API. These values are required for processing:
+
+```dotenv
+GAMEPLAY_ENGINE_ROOT=/absolute/path/to/AI-Youtube-Shorts-Generator
+GAMEPLAY_ENGINE_PYTHON=/absolute/path/to/AI-Youtube-Shorts-Generator/.venv/bin/python
+GAMEPLAY_ENGINE_OUTPUT_DIR=/absolute/path/to/AI-Youtube-Shorts-Generator/output
+```
+
+Useful local settings:
+
+| Variable              | Purpose                                          | Default                     |
+| --------------------- | ------------------------------------------------ | --------------------------- |
+| `VITE_API_BASE_URL`   | Web app API address                              | `http://localhost:8000/api` |
+| `GAMEPLAY_DATA_DIR`   | Persistent uploads, results, and project history | `.data` in this repository  |
+| `MAX_UPLOAD_BYTES`    | Maximum accepted upload size                     | 10 GB                       |
+| `MAX_CONCURRENT_JOBS` | Number of simultaneous local engine processes    | `1`                         |
+| `CORS_ALLOW_ORIGINS`  | Allowed local web origins                        | Vite localhost origins      |
+| `ALLOWED_HOSTS`       | Accepted Host headers                            | `localhost,127.0.0.1`       |
+
+Keep `.env` private. It may contain local paths and provider credentials used by the engine.
+
+## Running locally
+
+Start the API in one terminal:
+
+```bash
+uv run --project apps/api uvicorn app.main:app --reload
+```
+
+Start the web app in another:
+
+```bash
+npm run dev:web
+```
+
+Open the Vite address shown in the terminal (normally `http://localhost:5173`). A working session follows this path:
+
+1. Upload an MP4, MOV, MKV, or WebM gameplay file.
+2. Choose clip count, game profile, layout, and whether to review candidates before rendering.
+3. Monitor processing; failed or cancelled projects can be resumed when their original upload is still available.
+4. In review mode, select candidates and render them. Otherwise the engine renders the requested top clips directly.
+5. Open the completed project in **Review** to preview and save rendered clips.
+6. Use **Projects** or **History** to reopen a completed project or resume an interrupted one.
+
+The settings page stores default game profile and layout in the current browser. It does not store secrets or modify the engine environment.
+
+## Quality checks
+
+```bash
+npm run lint
+npm run typecheck
+npm run build
+cd apps/api && uv run --extra dev ruff check . && uv run --extra dev black --check . && uv run --extra dev pytest
+```
+
+`make lint`, `make test`, and `make format-check` provide the same common checks. Run `docker compose config` to validate the optional local API container configuration.
+
+## Troubleshooting
+
+**The web app reports that the local service is offline**
+
+Start the API, ensure it is listening on port 8000, and confirm `VITE_API_BASE_URL` points to its `/api` path.
+
+**A job fails immediately with an engine configuration error**
+
+Verify `GAMEPLAY_ENGINE_ROOT` contains `main.py` and `GAMEPLAY_ENGINE_PYTHON` points to the engine’s executable Python environment. Restart the API after changing `.env`.
+
+**Rendering fails after candidates are selected**
+
+Confirm the engine environment has FFmpeg and all local rendering dependencies installed. The project log records the engine output; correct the dependency issue and use **Resume project**.
+
+**A project cannot be resumed**
+
+Resume requires the original upload to remain below `GAMEPLAY_DATA_DIR/uploads`. Start a new project if that file has been deleted or moved.
+
+**The upload is rejected**
+
+Use an MP4, MOV, MKV, or WebM file and keep it below `MAX_UPLOAD_BYTES`.
+
+## Architecture
+
+```text
+Browser (React/Vite)
+  └─ FastAPI /api
+       ├─ streams uploads into .data/uploads
+       ├─ keeps durable job state in .data/jobs.json
+       ├─ starts the existing local AI engine as a subprocess
+       └─ serves completed local clip files after path validation
+```
+
+The API intentionally orchestrates the engine rather than duplicating transcription, scoring, or rendering logic. Job polling occurs only while one or more jobs are queued or processing. Jobs interrupted by an API restart are retained and marked recoverable.
+
+## Folder structure
+
+```text
+apps/
+  api/                   FastAPI API, orchestration, and tests
+  web/                   React + TypeScript interface
+docs/                    Product and architecture records
+scripts/                 Setup, API, migration, lint, and test helpers
+```
+
+## Developer guide
+
+- Keep browser controls tied to API data or browser-persisted preferences; do not add simulated controls or metrics.
+- Preserve the engine boundary in `apps/api/app/api.py`. New UI behavior should use the existing job, resume, render, and file endpoints where possible.
+- The API only accepts source paths created by its upload endpoint and only serves files under approved local roots.
+- Add API tests under `apps/api/tests` for validation and state transitions. Run the quality checks before committing.
+- Persistent local job state is intentionally separate from the earlier SQLAlchemy support layer; do not rely on a browser path or expose internal source paths in API responses.
 
 ## License
 

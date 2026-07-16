@@ -25,6 +25,7 @@ APP_ROOT = Path(__file__).resolve().parents[3]
 DATA_ROOT = Path(os.getenv("GAMEPLAY_DATA_DIR", APP_ROOT / ".data"))
 UPLOAD_ROOT = DATA_ROOT / "uploads"
 RESULT_ROOT = DATA_ROOT / "results"
+JOB_STORE_PATH = DATA_ROOT / "jobs.json"
 _engine_root = os.getenv("GAMEPLAY_ENGINE_ROOT")
 ENGINE_ROOT = Path(_engine_root).expanduser().resolve() if _engine_root else None
 ENGINE_OUTPUT_ROOT = (
@@ -63,6 +64,7 @@ class JobState(BaseModel):
     created_at: str
     updated_at: str
     options: dict[str, Any]
+    source_path: str
     logs: list[str] = Field(default_factory=list)
     result: dict[str, Any] | None = None
 
@@ -71,18 +73,78 @@ jobs: dict[str, JobState] = {}
 processes: dict[str, asyncio.subprocess.Process] = {}
 
 
+class RenderRequest(BaseModel):
+    selected_indices: list[int] = Field(min_length=1, max_length=15)
+
+
+REVIEW_RENDER_SCRIPT = """
+import json
+import sys
+
+from shorts_generator.local.clipper import crop_highlights_local
+
+source_path, payload_path, output_dir, layout_mode, result_path = sys.argv[1:]
+with open(payload_path, encoding="utf-8") as source:
+    payload = json.load(source)
+shorts = crop_highlights_local(
+    source_path,
+    payload["highlights"],
+    out_dir=output_dir,
+    transcript=payload.get("transcript"),
+    layout_mode=layout_mode,
+)
+with open(result_path, "w", encoding="utf-8") as destination:
+    json.dump(shorts, destination)
+"""
+
+
 def now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def save_jobs() -> None:
+    """Persist local project state atomically so completed work can be resumed."""
+
+    JOB_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = JOB_STORE_PATH.with_suffix(".tmp")
+    temporary_path.write_text(
+        json.dumps([job.model_dump() for job in jobs.values()], indent=2), encoding="utf-8"
+    )
+    temporary_path.replace(JOB_STORE_PATH)
+
+
+def load_jobs() -> None:
+    """Restore saved projects and mark interrupted work as recoverable."""
+
+    if not JOB_STORE_PATH.is_file():
+        return
+    try:
+        saved_jobs = json.loads(JOB_STORE_PATH.read_text(encoding="utf-8"))
+        for saved_job in saved_jobs:
+            job = JobState.model_validate(saved_job)
+            if job.status in {"queued", "processing"}:
+                job.status, job.stage = "failed", "Interrupted"
+                job.error = (
+                    "The local service stopped before this project finished. "
+                    "Resume it to try again."
+                )
+                job.updated_at = now()
+            jobs[job.id] = job
+        save_jobs()
+    except (json.JSONDecodeError, OSError, ValueError):
+        # A corrupt local history must not prevent the service from starting.
+        jobs.clear()
 
 
 def log(job: JobState, message: str) -> None:
     job.logs.append(message)
     job.logs[:] = job.logs[-120:]
     job.updated_at = now()
+    save_jobs()
 
 
 def serialise(job: JobState) -> dict[str, Any]:
-    return job.model_dump()
+    return job.model_dump(exclude={"source_path"})
 
 
 def is_within(path: Path, root: Path) -> bool:
@@ -117,6 +179,8 @@ def stage_from_log(line: str) -> tuple[str, int] | None:
 async def run_engine(job: JobState, request: GenerateRequest) -> None:
     """Run the existing CLI asynchronously and expose its output as job state."""
 
+    if job.status == "cancelled":
+        return
     output_file = RESULT_ROOT / f"{job.id}.json"
     output_file.parent.mkdir(parents=True, exist_ok=True)
     if ENGINE_ROOT is None or not ENGINE_ROOT.joinpath("main.py").is_file():
@@ -167,13 +231,87 @@ async def run_engine(job: JobState, request: GenerateRequest) -> None:
             return
         if return_code != 0:
             raise RuntimeError(f"Pipeline exited with code {return_code}.")
-        if output_file.exists():
-            job.result = json.loads(output_file.read_text(encoding="utf-8"))
+        if not output_file.is_file():
+            raise RuntimeError("Pipeline completed without producing its result file.")
+        result = json.loads(output_file.read_text(encoding="utf-8"))
+        if not isinstance(result, dict) or not isinstance(result.get("highlights"), list):
+            raise RuntimeError("Pipeline produced an invalid result file.")
+        job.result = result
         job.status, job.stage, job.progress = "completed", "Completed", 100
         log(job, "Processing completed successfully.")
     except Exception as error:  # Surface engine failures without taking down the API.
         if job.status == "cancelled":
             log(job, "Processing cancelled.")
+            return
+        job.status, job.stage, job.error = "failed", "Failed", str(error)
+        log(job, f"Error: {error}")
+    finally:
+        processes.pop(job.id, None)
+
+
+async def run_review_render(job: JobState, selected_indices: list[int]) -> None:
+    """Render previously reviewed candidates using the engine's existing clip renderer."""
+
+    if job.status == "cancelled":
+        return
+    if ENGINE_ROOT is None or job.result is None:
+        job.status, job.stage = "failed", "Failed"
+        job.error = "The local renderer is unavailable."
+        log(job, job.error)
+        return
+
+    highlights = job.result.get("highlights", [])
+    selected_highlights = [highlights[index] for index in selected_indices]
+    render_root = RESULT_ROOT / job.id
+    render_root.mkdir(parents=True, exist_ok=True)
+    payload_path = render_root / "selection.json"
+    rendered_path = render_root / "rendered.json"
+    payload_path.write_text(
+        json.dumps(
+            {
+                "highlights": selected_highlights,
+                "transcript": job.result.get("transcript", {}),
+            }
+        ),
+        encoding="utf-8",
+    )
+    command = [
+        ENGINE_PYTHON,
+        "-c",
+        REVIEW_RENDER_SCRIPT,
+        job.source_path,
+        str(payload_path),
+        str(render_root),
+        str(job.options.get("layout_mode", "auto")),
+        str(rendered_path),
+    ]
+    job.status, job.stage, job.progress, job.error = "processing", "Rendering", 82, None
+    log(job, f"Rendering {len(selected_highlights)} selected highlight(s).")
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            cwd=str(ENGINE_ROOT),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        processes[job.id] = process
+        assert process.stdout is not None
+        while line := await process.stdout.readline():
+            message = line.decode("utf-8", errors="replace").strip()
+            if message:
+                log(job, message)
+        return_code = await process.wait()
+        if job.status == "cancelled":
+            log(job, "Rendering cancelled.")
+            return
+        if return_code != 0 or not rendered_path.is_file():
+            raise RuntimeError("The renderer did not produce any clips.")
+        job.result["shorts"] = json.loads(rendered_path.read_text(encoding="utf-8"))
+        job.status, job.stage, job.progress = "completed", "Completed", 100
+        log(job, "Selected clips rendered successfully.")
+    except Exception as error:
+        if job.status == "cancelled":
+            log(job, "Rendering cancelled.")
             return
         job.status, job.stage, job.error = "failed", "Failed", str(error)
         log(job, f"Error: {error}")
@@ -254,11 +392,13 @@ async def create_job(payload: GenerateRequest) -> dict[str, Any]:
     job = JobState(
         id=job_id,
         filename=payload.filename,
+        source_path=str(source),
         created_at=now(),
         updated_at=now(),
         options=payload.model_dump(exclude={"source_path", "filename"}),
     )
     jobs[job_id] = job
+    save_jobs()
     asyncio.create_task(run_engine(job, payload))
     return serialise(job)
 
@@ -290,6 +430,68 @@ async def cancel_job(job_id: str) -> dict[str, Any]:
         if process and process.returncode is None:
             process.terminate()
         log(job, "Cancellation requested. Stopping the current engine process.")
+    return serialise(job)
+
+
+@router.post("/jobs/{job_id}/resume", status_code=202)
+async def resume_job(job_id: str) -> dict[str, Any]:
+    job = jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    if job.status not in {"failed", "cancelled"}:
+        raise HTTPException(
+            status_code=409, detail="Only failed or cancelled projects can be resumed."
+        )
+    source = Path(job.source_path).resolve()
+    if not source.is_file() or not allowed_source(source):
+        raise HTTPException(
+            status_code=400, detail="The original uploaded video is no longer available."
+        )
+    active_jobs = sum(candidate.status in {"queued", "processing"} for candidate in jobs.values())
+    if active_jobs >= MAX_CONCURRENT_JOBS:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                "Another video is already being processed. Wait for it to finish before resuming."
+            ),
+        )
+    job.status, job.stage, job.progress, job.error = "queued", "Preparing", 0, None
+    log(job, "Project resumed.")
+    request = GenerateRequest(
+        source_path=job.source_path,
+        filename=job.filename,
+        **job.options,
+    )
+    asyncio.create_task(run_engine(job, request))
+    return serialise(job)
+
+
+@router.post("/jobs/{job_id}/render", status_code=202)
+async def render_selected_clips(job_id: str, payload: RenderRequest) -> dict[str, Any]:
+    job = jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    if job.status != "completed" or not job.options.get("review_only") or not job.result:
+        raise HTTPException(
+            status_code=409, detail="This project is not ready for review rendering."
+        )
+    selected_indices = sorted(set(payload.selected_indices))
+    highlights = job.result.get("highlights", [])
+    if len(selected_indices) != len(payload.selected_indices) or any(
+        index < 0 or index >= len(highlights) for index in selected_indices
+    ):
+        raise HTTPException(status_code=400, detail="Choose valid, unique highlight candidates.")
+    active_jobs = sum(candidate.status in {"queued", "processing"} for candidate in jobs.values())
+    if active_jobs >= MAX_CONCURRENT_JOBS:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                "Another video is already being processed. Wait for it to finish before rendering."
+            ),
+        )
+    job.status, job.stage, job.progress, job.error = "queued", "Preparing", 0, None
+    log(job, "Rendering selected highlights.")
+    asyncio.create_task(run_review_render(job, selected_indices))
     return serialise(job)
 
 

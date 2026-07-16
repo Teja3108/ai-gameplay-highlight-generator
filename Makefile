@@ -1,4 +1,4 @@
-.PHONY: help setup install-hooks lint lint-js lint-python format format-check test test-python dev-api dev-web dev-desktop docker-config docker-up
+.PHONY: help setup install-hooks lint lint-js lint-python format format-check test test-python dev-api dev-web docker-config docker-up
 
 API_DIR := apps/api
 UV := uv
@@ -13,7 +13,6 @@ help:
 	@echo "  test           Run test suites"
 	@echo "  dev-api        Start the API service with reload"
 	@echo "  dev-web        Start the web application"
-	@echo "  dev-desktop    Start the desktop shell"
 	@echo "  docker-config  Validate Docker Compose configuration"
 	@echo "  docker-up      Build and start the API container"
 
@@ -56,9 +55,6 @@ dev-api:
 
 dev-web:
 	npm run dev:web
-
-dev-desktop:
-	npm run dev:desktop
 
 docker-config:
 	docker compose config

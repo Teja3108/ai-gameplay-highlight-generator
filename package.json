@@ -5,9 +5,7 @@
   "type": "module",
   "description": "Monorepo for the AI Gameplay Highlight Generator platform.",
   "workspaces": [
-    "apps/web",
-    "apps/desktop",
-    "packages/*"
+    "apps/web"
   ],
   "engines": {
     "node": ">=20.18.0",
@@ -16,7 +14,6 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "dev:web": "npm run dev --workspace=@gameplay/web",
-    "dev:desktop": "npm run dev --workspace=@gameplay/desktop",
     "lint": "npm run lint --workspaces --if-present",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
