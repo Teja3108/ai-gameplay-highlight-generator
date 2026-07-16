@@ -10,6 +10,9 @@ let mainWindow;
 let apiProcess;
 let webServer;
 let isQuitting = false;
+let apiRestartTimer;
+let apiRestartAttempts = 0;
+let shouldRestartApi = false;
 
 const contentTypes = {
   '.css': 'text/css; charset=utf-8',
@@ -128,9 +131,27 @@ function startApi(paths) {
   apiProcess.once('error', (error) => {
     console.error('Unable to start the bundled API:', error);
   });
+  apiProcess.once('exit', () => {
+    apiProcess = undefined;
+    if (!isQuitting && shouldRestartApi) scheduleApiRestart(paths);
+  });
+}
+
+function scheduleApiRestart(paths) {
+  if (apiRestartTimer || apiRestartAttempts >= 3) return;
+  const delay = 1_000 * 2 ** apiRestartAttempts;
+  apiRestartAttempts += 1;
+  apiRestartTimer = setTimeout(() => {
+    apiRestartTimer = undefined;
+    if (!isQuitting && !apiProcess) startApi(paths);
+  }, delay);
 }
 
 function stopServices() {
+  if (apiRestartTimer) {
+    clearTimeout(apiRestartTimer);
+    apiRestartTimer = undefined;
+  }
   if (webServer) {
     webServer.close();
     webServer = undefined;
@@ -160,11 +181,14 @@ async function createWindow() {
   try {
     const paths = runtimePaths();
     assertRuntime(paths);
+    shouldRestartApi = true;
     startApi(paths);
     await waitForApi();
+    apiRestartAttempts = 0;
     await startWebServer(paths.webRoot);
     await mainWindow.loadURL(`http://127.0.0.1:${WEB_PORT}`);
   } catch (error) {
+    shouldRestartApi = false;
     stopServices();
     await mainWindow.loadURL(
       splash(error instanceof Error ? error.message : 'The application could not start.'),
@@ -191,6 +215,7 @@ if (hasSingleInstanceLock) {
 app.on('before-quit', () => {
   if (isQuitting) return;
   isQuitting = true;
+  shouldRestartApi = false;
   stopServices();
 });
 app.on('window-all-closed', () => app.quit());

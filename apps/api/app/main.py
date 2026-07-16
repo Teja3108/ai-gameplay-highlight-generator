@@ -1,16 +1,24 @@
 """FastAPI application entry point."""
 
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app.api import load_jobs, router
+from app.api import load_jobs, router, shutdown_processing
 from app.core.container import create_container
 from app.core.logging import configure_logging
 
 configure_logging()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    yield
+    await shutdown_processing()
+
 
 app = FastAPI(
     title="Gameplay Highlight Generator API",
@@ -18,6 +26,7 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
+    lifespan=lifespan,
 )
 load_jobs()
 app.state.container = create_container()

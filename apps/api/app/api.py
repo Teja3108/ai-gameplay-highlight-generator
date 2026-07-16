@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -39,7 +40,7 @@ ENGINE_OUTPUT_ROOT = (
     .resolve()
 )
 ENGINE_PYTHON = os.getenv("GAMEPLAY_ENGINE_PYTHON", sys.executable)
-MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(10 * 1024 * 1024 * 1024)))
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(100 * 1024 * 1024 * 1024)))
 MAX_CONCURRENT_JOBS = int(os.getenv("MAX_CONCURRENT_JOBS", "1"))
 SUPPORTED_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm"}
 
@@ -177,7 +178,67 @@ def log(job: JobState, message: str) -> None:
 
 
 def serialise(job: JobState) -> dict[str, Any]:
-    return job.model_dump(exclude={"source_path"})
+    """Return UI data without local paths or large engine-only transcript data."""
+
+    payload = job.model_dump(exclude={"source_path"})
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        return payload
+    result.pop("transcript", None)
+    shorts = result.get("shorts")
+    if isinstance(shorts, list):
+        for clip in shorts:
+            if isinstance(clip, dict):
+                clip.pop("clip_url", None)
+    return payload
+
+
+def pipeline_error(error: Exception) -> str:
+    """Keep implementation paths and raw engine failures out of the UI."""
+
+    if isinstance(error, json.JSONDecodeError):
+        return "The pipeline returned invalid project data. You can retry this project."
+    if isinstance(error, (OSError, asyncio.TimeoutError)):
+        return "The local pipeline stopped unexpectedly. You can retry this project."
+    return "The pipeline stopped before finishing. You can retry this project."
+
+
+async def stop_process(job_id: str, process: asyncio.subprocess.Process) -> None:
+    """Terminate a cancelled engine, escalating only when it does not exit."""
+
+    if process.returncode is not None:
+        return
+    process.terminate()
+    try:
+        await asyncio.wait_for(process.wait(), timeout=10)
+    except asyncio.TimeoutError:
+        process.kill()
+        await process.wait()
+
+
+def process_is_stopping(job_id: str) -> bool:
+    process = processes.get(job_id)
+    return process is not None and process.returncode is None
+
+
+async def shutdown_processing() -> None:
+    """Persist recoverable state and stop child processes during API shutdown."""
+
+    pending: list[asyncio.Task[None]] = []
+    for job_id, process in list(processes.items()):
+        job = jobs.get(job_id)
+        if job and job.status in {"queued", "processing"}:
+            job.status, job.stage = "failed", "Interrupted"
+            job.error = (
+                "The local service stopped before this project finished. Resume it to continue."
+            )
+            job.logs.append("Service shutdown detected. Project can be resumed.")
+            job.logs[:] = job.logs[-120:]
+            job.updated_at = now()
+        pending.append(asyncio.create_task(stop_process(job_id, process)))
+    if pending:
+        save_jobs()
+        await asyncio.gather(*pending, return_exceptions=True)
 
 
 def is_within(path: Path, root: Path) -> bool:
@@ -215,7 +276,13 @@ async def run_engine(job: JobState, request: GenerateRequest) -> None:
     if job.status == "cancelled":
         return
     output_file = RESULT_ROOT / f"{job.id}.json"
-    output_file.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.unlink(missing_ok=True)
+    except OSError as error:
+        job.status, job.stage, job.error = "failed", "Failed", pipeline_error(error)
+        log(job, job.error)
+        return
     if ENGINE_ROOT is None or not ENGINE_ROOT.joinpath("main.py").is_file():
         job.status = "failed"
         job.error = "The gameplay engine is not configured or its main.py file is unavailable."
@@ -276,8 +343,8 @@ async def run_engine(job: JobState, request: GenerateRequest) -> None:
         if job.status == "cancelled":
             log(job, "Processing cancelled.")
             return
-        job.status, job.stage, job.error = "failed", "Failed", str(error)
-        log(job, f"Error: {error}")
+        job.status, job.stage, job.error = "failed", "Failed", pipeline_error(error)
+        log(job, job.error)
     finally:
         processes.pop(job.id, None)
 
@@ -305,18 +372,24 @@ async def run_review_render(
             highlight["end_time"] = edit.end_time
         selected_highlights.append(highlight)
     render_root = RESULT_ROOT / job.id
-    render_root.mkdir(parents=True, exist_ok=True)
     payload_path = render_root / "selection.json"
     rendered_path = render_root / "rendered.json"
-    payload_path.write_text(
-        json.dumps(
-            {
-                "highlights": selected_highlights,
-                "transcript": job.result.get("transcript", {}),
-            }
-        ),
-        encoding="utf-8",
-    )
+    try:
+        render_root.mkdir(parents=True, exist_ok=True)
+        rendered_path.unlink(missing_ok=True)
+        payload_path.write_text(
+            json.dumps(
+                {
+                    "highlights": selected_highlights,
+                    "transcript": job.result.get("transcript", {}),
+                }
+            ),
+            encoding="utf-8",
+        )
+    except OSError as error:
+        job.status, job.stage, job.error = "failed", "Failed", pipeline_error(error)
+        log(job, job.error)
+        return
     command = [
         ENGINE_PYTHON,
         "-c",
@@ -349,14 +422,16 @@ async def run_review_render(
         if return_code != 0 or not rendered_path.is_file():
             raise RuntimeError("The renderer did not produce any clips.")
         job.result["shorts"] = json.loads(rendered_path.read_text(encoding="utf-8"))
+        payload_path.unlink(missing_ok=True)
+        rendered_path.unlink(missing_ok=True)
         job.status, job.stage, job.progress = "completed", "Completed", 100
         log(job, "Selected clips rendered successfully.")
     except Exception as error:
         if job.status == "cancelled":
             log(job, "Rendering cancelled.")
             return
-        job.status, job.stage, job.error = "failed", "Failed", str(error)
-        log(job, f"Error: {error}")
+        job.status, job.stage, job.error = "failed", "Failed", pipeline_error(error)
+        log(job, job.error)
     finally:
         processes.pop(job.id, None)
 
@@ -392,7 +467,17 @@ async def upload_video(request: Request) -> dict[str, str]:
             raise HTTPException(
                 status_code=400, detail="Content-Length must be a valid number."
             ) from error
-    UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+    try:
+        UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+        if declared_length and shutil.disk_usage(UPLOAD_ROOT).free < int(declared_length):
+            raise HTTPException(
+                status_code=507,
+                detail="There is not enough free disk space to save this video.",
+            )
+    except OSError as error:
+        raise HTTPException(
+            status_code=507, detail="The upload folder is not available or writable."
+        ) from error
     target = UPLOAD_ROOT / f"{uuid.uuid4().hex}_{filename}"
     bytes_written = 0
     try:
@@ -405,6 +490,12 @@ async def upload_video(request: Request) -> dict[str, str]:
                         detail="The uploaded video exceeds the configured size limit.",
                     )
                 upload.write(chunk)
+    except OSError as error:
+        target.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=507,
+            detail="The video could not be saved because local storage is full or unavailable.",
+        ) from error
     except Exception:
         target.unlink(missing_ok=True)
         raise
@@ -528,7 +619,7 @@ async def cancel_job(job_id: str) -> dict[str, Any]:
         job.status, job.stage = "cancelled", "Cancelled"
         process = processes.get(job_id)
         if process and process.returncode is None:
-            process.terminate()
+            asyncio.create_task(stop_process(job_id, process))
         log(job, "Cancellation requested. Stopping the current engine process.")
     return serialise(job)
 
@@ -544,6 +635,11 @@ async def resume_job(job_id: str) -> dict[str, Any]:
     if job.status not in {"failed", "cancelled"}:
         raise HTTPException(
             status_code=409, detail="Only failed or cancelled projects can be resumed."
+        )
+    if process_is_stopping(job_id):
+        raise HTTPException(
+            status_code=409,
+            detail="The previous processing run is still stopping. Retry resume in a few seconds.",
         )
     source = Path(job.source_path).resolve()
     if not source.is_file() or not allowed_source(source):
@@ -625,3 +721,24 @@ async def get_file(path: str) -> FileResponse:
     if not any(is_within(candidate, root) for root in allowed) or not candidate.is_file():
         raise HTTPException(status_code=404, detail="File not found.")
     return FileResponse(candidate)
+
+
+@router.get("/jobs/{job_id}/clips/{clip_index}")
+async def get_job_clip(job_id: str, clip_index: int) -> FileResponse:
+    """Serve a rendered clip without exposing its filesystem path to the UI."""
+
+    job = jobs.get(job_id)
+    shorts = (job.result or {}).get("shorts", []) if job else []
+    if not isinstance(shorts, list) or clip_index < 0 or clip_index >= len(shorts):
+        raise HTTPException(status_code=404, detail="Rendered clip not found.")
+    clip = shorts[clip_index]
+    path = Path(clip.get("clip_url", "")).resolve() if isinstance(clip, dict) else None
+    if (
+        path is None
+        or not path.is_file()
+        or not (
+            is_within(path, RESULT_ROOT.resolve()) or is_within(path, ENGINE_OUTPUT_ROOT.resolve())
+        )
+    ):
+        raise HTTPException(status_code=404, detail="The rendered clip is no longer available.")
+    return FileResponse(path)

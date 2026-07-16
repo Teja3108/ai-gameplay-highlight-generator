@@ -50,7 +50,7 @@ Useful local settings:
 | --------------------- | ------------------------------------------------ | --------------------------- |
 | `VITE_API_BASE_URL`   | Web app API address                              | `http://localhost:8000/api` |
 | `GAMEPLAY_DATA_DIR`   | Persistent uploads, results, and project history | `.data` in this repository  |
-| `MAX_UPLOAD_BYTES`    | Maximum accepted upload size                     | 10 GB                       |
+| `MAX_UPLOAD_BYTES`    | Maximum accepted upload size                     | 100 GB                      |
 | `MAX_CONCURRENT_JOBS` | Number of simultaneous local engine processes    | `1`                         |
 | `CORS_ALLOW_ORIGINS`  | Allowed local web origins                        | Vite localhost origins      |
 | `ALLOWED_HOSTS`       | Accepted Host headers                            | `localhost,127.0.0.1`       |

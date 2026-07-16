@@ -67,7 +67,7 @@ type Highlight = {
   dialogue_score?: number;
   action_score?: number;
 };
-type Clip = Highlight & { clip_url?: string; title?: string };
+type Clip = Highlight & { title?: string };
 type ClipEdit = { index: number; start_time: number; end_time: number };
 type SavedReviewState = {
   approved_indices?: number[];
@@ -117,9 +117,7 @@ function loadProjectDefaults(): ProjectDefaults {
   }
 }
 
-function clipFileUrl(path?: string) {
-  return path ? `${api}/files?path=${encodeURIComponent(path)}` : undefined;
-}
+const clipFileUrl = (jobId: string, index: number) => `${api}/jobs/${jobId}/clips/${index}`;
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 1_500, retry: 1, refetchOnWindowFocus: false } },
 });
@@ -488,6 +486,7 @@ function Dashboard({
 
 function Generate({ defaults, onJob }: { defaults: ProjectDefaults; onJob: (job: Job) => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const requestRef = useRef<AbortController | undefined>(undefined);
   const [file, setFile] = useState<File>();
   const [dragging, setDragging] = useState(false);
   const [clips, setClips] = useState(5);
@@ -496,6 +495,12 @@ function Generate({ defaults, onJob }: { defaults: ProjectDefaults; onJob: (job:
   const [review, setReview] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  useEffect(
+    () => () => {
+      requestRef.current?.abort();
+    },
+    [],
+  );
   const chooseFile = (selected?: File) => {
     if (!selected) return;
     if (!selected.type.startsWith('video/')) {
@@ -512,11 +517,14 @@ function Generate({ defaults, onJob }: { defaults: ProjectDefaults; onJob: (job:
     }
     setSubmitting(true);
     setError('');
+    const controller = new AbortController();
+    requestRef.current = controller;
     try {
       const upload = await fetch(`${api}/uploads`, {
         method: 'POST',
         headers: { 'Content-Type': file.type, 'X-Filename': file.name },
         body: file,
+        signal: controller.signal,
       });
       if (!upload.ok)
         throw new Error('The upload could not be saved. Check available disk space, then retry.');
@@ -524,6 +532,7 @@ function Generate({ defaults, onJob }: { defaults: ProjectDefaults; onJob: (job:
       const response = await fetch(`${api}/jobs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           source_path: path,
           filename,
@@ -541,13 +550,17 @@ function Generate({ defaults, onJob }: { defaults: ProjectDefaults; onJob: (job:
       await queryClient.invalidateQueries({ queryKey: ['jobs'] });
       onJob(job);
     } catch (reason) {
+      if (reason instanceof DOMException && reason.name === 'AbortError') return;
       setError(
         reason instanceof Error
           ? reason.message
           : 'We could not start processing this video. Please try again.',
       );
     } finally {
-      setSubmitting(false);
+      if (requestRef.current === controller) {
+        requestRef.current = undefined;
+        setSubmitting(false);
+      }
     }
   };
   const removeFile = () => {
@@ -590,7 +603,7 @@ function Generate({ defaults, onJob }: { defaults: ProjectDefaults; onJob: (job:
                   <Upload size={23} />
                 </span>
                 <b>Drop your gameplay recording here</b>
-                <span>MP4, MOV, or MKV · Up to 10 GB</span>
+                <span>MP4, MOV, or MKV · Up to 100 GB</span>
                 <span className="button secondary">Browse files</span>
               </>
             )}
@@ -792,8 +805,8 @@ function Processing({
               <div>
                 <b>Processing stopped unexpectedly.</b>
                 <p>
-                  The local service is unreachable. Your saved project will remain available when the
-                  service reconnects.
+                  The local service is unreachable. Your saved project will remain available when
+                  the service reconnects.
                 </p>
               </div>
               <div>
@@ -1219,24 +1232,18 @@ function Review({
           </div>
           <div className="highlight-grid">
             {shorts.map((clip, index) => {
-              const url = clipFileUrl(clip.clip_url);
+              const url = clipFileUrl(job.id, index);
               return (
-                <article className="highlight-card" key={`${clip.clip_url}-${index}`}>
-                  {url ? (
-                    <video className="clip-video" controls preload="metadata" src={url} />
-                  ) : (
-                    <div className="highlight-preview">This clip could not be rendered.</div>
-                  )}
+                <article className="highlight-card" key={`${clip.start_time}-${index}`}>
+                  <video className="clip-video" controls preload="metadata" src={url} />
                   <div className="highlight-content">
                     <h3>{clip.title || `Clip ${index + 1}`}</h3>
                     <p>
                       {formatSeconds(clip.start_time)} – {formatSeconds(clip.end_time)}
                     </p>
-                    {url && (
-                      <a className="button secondary" href={url} download>
-                        Save clip
-                      </a>
-                    )}
+                    <a className="button secondary" href={url} download>
+                      Save clip
+                    </a>
                   </div>
                 </article>
               );

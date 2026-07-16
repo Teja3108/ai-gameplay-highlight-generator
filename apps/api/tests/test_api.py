@@ -1,4 +1,6 @@
+import asyncio
 import json
+from collections import namedtuple
 
 from app import api
 from app.main import app
@@ -197,6 +199,138 @@ def test_resume_reuses_restored_project_and_keeps_its_identity(monkeypatch, tmp_
         assert job.status == "queued"
         assert job.progress == 0
         assert "Project resumed." in job.logs
+    finally:
+        api.jobs.pop(job.id, None)
+
+
+def test_resume_waits_for_a_cancelled_process_to_exit(monkeypatch, tmp_path) -> None:
+    upload_root = tmp_path / "uploads"
+    upload_root.mkdir()
+    source = upload_root / "recording.mp4"
+    source.write_bytes(b"video")
+    monkeypatch.setattr(api, "UPLOAD_ROOT", upload_root)
+    job = api.JobState(
+        id="stopping-job",
+        filename="recording.mp4",
+        source_path=str(source),
+        status="cancelled",
+        stage="Cancelled",
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+        options={},
+    )
+
+    class RunningProcess:
+        returncode = None
+
+    api.jobs[job.id] = job
+    api.processes[job.id] = RunningProcess()  # type: ignore[assignment]
+    try:
+        with TestClient(app) as client:
+            response = client.post(f"/api/jobs/{job.id}/resume", headers={"host": "localhost"})
+
+        assert response.status_code == 409
+        assert "still stopping" in response.json()["detail"]
+    finally:
+        api.processes.pop(job.id, None)
+        api.jobs.pop(job.id, None)
+
+
+def test_job_serialisation_hides_transcript_and_local_clip_paths() -> None:
+    job = api.JobState(
+        id="private-result-job",
+        filename="recording.mp4",
+        source_path="/private/source/recording.mp4",
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+        options={},
+        result={
+            "transcript": {"text": "private transcript"},
+            "shorts": [{"clip_url": "/private/results/clip.mp4", "start_time": 1}],
+        },
+    )
+
+    payload = api.serialise(job)
+
+    assert "transcript" not in payload["result"]
+    assert "clip_url" not in payload["result"]["shorts"][0]
+    assert "/private/" not in json.dumps(payload)
+
+
+def test_clip_is_served_without_returning_its_path(monkeypatch, tmp_path) -> None:
+    results = tmp_path / "results"
+    results.mkdir()
+    clip = results / "clip.mp4"
+    clip.write_bytes(b"clip-data")
+    monkeypatch.setattr(api, "RESULT_ROOT", results)
+    job = api.JobState(
+        id="clip-job",
+        filename="recording.mp4",
+        source_path="/private/source/recording.mp4",
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+        options={},
+        result={"shorts": [{"clip_url": str(clip), "start_time": 1}]},
+    )
+    api.jobs[job.id] = job
+    try:
+        with TestClient(app) as client:
+            response = client.get(f"/api/jobs/{job.id}/clips/0", headers={"host": "localhost"})
+
+        assert response.status_code == 200
+        assert response.content == b"clip-data"
+        assert str(clip) not in response.text
+    finally:
+        api.jobs.pop(job.id, None)
+
+
+def test_upload_rejects_a_large_file_when_disk_space_is_insufficient(monkeypatch, tmp_path) -> None:
+    disk_usage = namedtuple("DiskUsage", "total used free")
+    monkeypatch.setattr(api, "UPLOAD_ROOT", tmp_path / "uploads")
+    monkeypatch.setattr(api.shutil, "disk_usage", lambda _: disk_usage(100, 99, 1))
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/uploads",
+            headers={
+                "host": "localhost",
+                "content-type": "video/mp4",
+                "x-filename": "recording.mp4",
+                "content-length": "2",
+            },
+            content=b"ok",
+        )
+
+    assert response.status_code == 507
+    assert response.json()["detail"] == "There is not enough free disk space to save this video."
+
+
+def test_engine_marks_project_failed_when_results_storage_is_unavailable(
+    monkeypatch, tmp_path
+) -> None:
+    unavailable_results = tmp_path / "results-file"
+    unavailable_results.write_text("not a directory", encoding="utf-8")
+    monkeypatch.setattr(api, "RESULT_ROOT", unavailable_results)
+    monkeypatch.setattr(api, "JOB_STORE_PATH", tmp_path / "jobs.json")
+    job = api.JobState(
+        id="unavailable-results-job",
+        filename="recording.mp4",
+        source_path=str(tmp_path / "recording.mp4"),
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+        options={},
+    )
+    api.jobs[job.id] = job
+    try:
+        asyncio.run(
+            api.run_engine(
+                job,
+                api.GenerateRequest(source_path=job.source_path, filename=job.filename),
+            )
+        )
+
+        assert job.status == "failed"
+        assert job.error == "The local pipeline stopped unexpectedly. You can retry this project."
     finally:
         api.jobs.pop(job.id, None)
 
