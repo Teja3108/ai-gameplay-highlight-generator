@@ -119,6 +119,9 @@ function startApi(paths) {
         GAMEPLAY_ENGINE_ROOT: paths.engineRoot,
         GAMEPLAY_ENGINE_PYTHON: paths.enginePython,
         GAMEPLAY_ENGINE_OUTPUT_DIR: join(userData, 'engine-output'),
+        // Gemini is the production local-mode provider. Respect an explicit
+        // override for legacy OpenAI users, but never silently select OpenAI.
+        LLM_PROVIDER: process.env.LLM_PROVIDER || 'gemini',
         STORAGE_ROOT: join(userData, 'storage'),
         DATABASE_URL: `sqlite:///${join(userData, 'gameplay.db')}`,
         TEMP_DIRECTORY: join(userData, 'tmp'),
@@ -170,7 +173,7 @@ async function createWindow() {
     minHeight: 680,
     show: true,
     backgroundColor: '#0b0c10',
-    title: 'AI Gameplay Shorts Generator 1.0.1',
+    title: 'AI Gameplay Shorts Generator 1.0.2',
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

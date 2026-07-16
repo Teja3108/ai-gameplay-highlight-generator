@@ -1441,7 +1441,7 @@ function About() {
         </span>
         <p className="eyebrow">AI GAMEPLAY SHORTS GENERATOR</p>
         <h2>AI Gameplay Shorts Generator</h2>
-        <p className="about-version">Version 1.0.1</p>
+        <p className="about-version">Version 1.0.2</p>
         <p className="about-description">Professional AI-powered gameplay shorts creation.</p>
         <dl>
           <div>

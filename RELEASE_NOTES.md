@@ -1,6 +1,6 @@
-# AI Gameplay Shorts Generator 1.0.1
+# AI Gameplay Shorts Generator 1.0.2
 
-AI Gameplay Shorts Generator 1.0.1 is the reliability update for Apple Silicon Macs.
+AI Gameplay Shorts Generator 1.0.2 fixes the packaged local LLM provider configuration for Apple Silicon Macs.
 
 ## Highlights
 
@@ -10,6 +10,7 @@ AI Gameplay Shorts Generator 1.0.1 is the reliability update for Apple Silicon M
 - Raised the supported upload limit to 100 GB with streamed writes and storage validation.
 - Added Gemini retry/backoff, model fallback, safe API-key rotation, and recoverable paused projects.
 - Improved navigation recovery, safe resume behavior, and local clip streaming.
+- Gemini is now the default local highlight-ranking provider; OpenAI is used only when explicitly selected.
 
 ## System requirements
 
