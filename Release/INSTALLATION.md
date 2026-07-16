@@ -1,6 +1,6 @@
 # Installation Guide
 
-1. Open `AI-Gameplay-Shorts-Generator-1.0.0-arm64.dmg`.
+1. Open `AI-Gameplay-Shorts-Generator-1.0.1-arm64.dmg`.
 2. Drag **AI Gameplay Shorts Generator** to the **Applications** folder.
 3. Eject the mounted disk image.
 4. Open the app from Applications.
