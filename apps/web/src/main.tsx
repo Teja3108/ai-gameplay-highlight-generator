@@ -825,7 +825,9 @@ function Review({
   useEffect(() => {
     const saved = job?.options.review_state;
     const valid = (indices: number[] | undefined) =>
-      (indices ?? []).filter((index) => Number.isInteger(index) && index >= 0 && index < highlights.length);
+      (indices ?? []).filter(
+        (index) => Number.isInteger(index) && index >= 0 && index < highlights.length,
+      );
     setApproved(valid(saved?.approved_indices));
     setRejected(valid(saved?.rejected_indices));
     setClipEdits(
@@ -859,11 +861,15 @@ function Review({
   );
   const updateDecision = useCallback((index: number, decision: 'approved' | 'rejected') => {
     if (decision === 'approved') {
-      setApproved((current) => (current.includes(index) ? current : [...current, index].sort((a, b) => a - b)));
+      setApproved((current) =>
+        current.includes(index) ? current : [...current, index].sort((a, b) => a - b),
+      );
       setRejected((current) => current.filter((item) => item !== index));
       return;
     }
-    setRejected((current) => (current.includes(index) ? current : [...current, index].sort((a, b) => a - b)));
+    setRejected((current) =>
+      current.includes(index) ? current : [...current, index].sort((a, b) => a - b),
+    );
     setApproved((current) => current.filter((item) => item !== index));
     setClipEdits((current) => current.filter((edit) => edit.index !== index));
   }, []);
@@ -878,7 +884,10 @@ function Review({
         };
         const next = {
           ...previous,
-          [edge]: edge === 'start_time' ? Math.min(value, previous.end_time - 0.1) : Math.max(value, previous.start_time + 0.1),
+          [edge]:
+            edge === 'start_time'
+              ? Math.min(value, previous.end_time - 0.1)
+              : Math.max(value, previous.start_time + 0.1),
         };
         return [...current.filter((edit) => edit.index !== activeIndex), next];
       });
@@ -903,7 +912,13 @@ function Review({
   }, [activeIndex, approved, clipEdits, highlights.length, job, onSaveReview, rejected]);
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey || /input|textarea|select/i.test((event.target as HTMLElement)?.tagName ?? '')) return;
+      if (
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        /input|textarea|select/i.test((event.target as HTMLElement)?.tagName ?? '')
+      )
+        return;
       if (event.key === ' ') {
         event.preventDefault();
         if (videoRef.current?.paused) void videoRef.current.play();
@@ -916,12 +931,23 @@ function Review({
         jumpTo(Math.max(activeIndex - 1, 0));
       } else if (event.key.toLowerCase() === 'a') updateDecision(activeIndex, 'approved');
       else if (event.key.toLowerCase() === 'r') updateDecision(activeIndex, 'rejected');
-      else if (event.key === '[') updateTrim('start_time', Math.max(activeHighlight?.start_time ?? 0, currentTime));
-      else if (event.key === ']') updateTrim('end_time', Math.min(activeHighlight?.end_time ?? currentTime, currentTime));
+      else if (event.key === '[')
+        updateTrim('start_time', Math.max(activeHighlight?.start_time ?? 0, currentTime));
+      else if (event.key === ']')
+        updateTrim('end_time', Math.min(activeHighlight?.end_time ?? currentTime, currentTime));
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeHighlight?.end_time, activeHighlight?.start_time, activeIndex, currentTime, highlights.length, jumpTo, updateDecision, updateTrim]);
+  }, [
+    activeHighlight?.end_time,
+    activeHighlight?.start_time,
+    activeIndex,
+    currentTime,
+    highlights.length,
+    jumpTo,
+    updateDecision,
+    updateTrim,
+  ]);
   if (!job || !highlights.length)
     return (
       <PageShell eyebrow="Review" title="Choose your best moments">
@@ -969,51 +995,172 @@ function Review({
               type="button"
               className="monitor-play"
               aria-label={isPlaying ? 'Pause source video' : 'Play source video'}
-              onClick={() => (videoRef.current?.paused ? void videoRef.current.play() : videoRef.current?.pause())}
+              onClick={() =>
+                videoRef.current?.paused ? void videoRef.current.play() : videoRef.current?.pause()
+              }
             >
               {isPlaying ? <Pause size={22} /> : <Play size={22} />}
             </button>
             <span className="monitor-label">SOURCE · {job.filename}</span>
           </div>
           <div className="monitor-controls">
-            <Button variant="quiet" aria-label="Previous highlight" onClick={() => jumpTo(Math.max(activeIndex - 1, 0))}><SkipBack size={17} /></Button>
-            <Button variant="quiet" onClick={() => (videoRef.current?.paused ? void videoRef.current.play() : videoRef.current?.pause())}>{isPlaying ? <Pause size={15} /> : <Play size={15} />} {isPlaying ? 'Pause' : 'Play'}</Button>
-            <Button variant="quiet" aria-label="Next highlight" onClick={() => jumpTo(Math.min(activeIndex + 1, highlights.length - 1))}><SkipForward size={17} /></Button>
-            <span>{formatSeconds(currentTime)} / {formatSeconds(timelineEnd)}</span>
+            <Button
+              variant="quiet"
+              aria-label="Previous highlight"
+              onClick={() => jumpTo(Math.max(activeIndex - 1, 0))}
+            >
+              <SkipBack size={17} />
+            </Button>
+            <Button
+              variant="quiet"
+              onClick={() =>
+                videoRef.current?.paused ? void videoRef.current.play() : videoRef.current?.pause()
+              }
+            >
+              {isPlaying ? <Pause size={15} /> : <Play size={15} />} {isPlaying ? 'Pause' : 'Play'}
+            </Button>
+            <Button
+              variant="quiet"
+              aria-label="Next highlight"
+              onClick={() => jumpTo(Math.min(activeIndex + 1, highlights.length - 1))}
+            >
+              <SkipForward size={17} />
+            </Button>
+            <span>
+              {formatSeconds(currentTime)} / {formatSeconds(timelineEnd)}
+            </span>
             <Maximize2 size={15} aria-hidden="true" />
           </div>
           <div className="studio-timeline" aria-label="Highlight timeline">
-            <div className="timeline-ruler"><span>00:00</span><span>{formatSeconds(timelineEnd / 2)}</span><span>{formatSeconds(timelineEnd)}</span></div>
-            <div className="timeline-track" onClick={(event) => {
-              const bounds = event.currentTarget.getBoundingClientRect();
-              const time = ((event.clientX - bounds.left) / bounds.width) * timelineEnd;
-              setCurrentTime(time); if (videoRef.current) videoRef.current.currentTime = time;
-            }}>
-              <i className="timeline-playhead" style={{ left: `${Math.min((currentTime / timelineEnd) * 100, 100)}%` }} />
+            <div className="timeline-ruler">
+              <span>00:00</span>
+              <span>{formatSeconds(timelineEnd / 2)}</span>
+              <span>{formatSeconds(timelineEnd)}</span>
+            </div>
+            <div
+              className="timeline-track"
+              onClick={(event) => {
+                const bounds = event.currentTarget.getBoundingClientRect();
+                const time = ((event.clientX - bounds.left) / bounds.width) * timelineEnd;
+                setCurrentTime(time);
+                if (videoRef.current) videoRef.current.currentTime = time;
+              }}
+            >
+              <i
+                className="timeline-playhead"
+                style={{ left: `${Math.min((currentTime / timelineEnd) * 100, 100)}%` }}
+              />
               {highlights.map((highlight, index) => (
-                <button key={`${highlight.start_time}-${index}`} type="button" className={`timeline-clip ${activeIndex === index ? 'active' : ''} ${approved.includes(index) ? 'approved' : ''} ${rejected.includes(index) ? 'rejected' : ''}`} style={{ left: `${(highlight.start_time / timelineEnd) * 100}%`, width: `${Math.max(((highlight.end_time - highlight.start_time) / timelineEnd) * 100, 2)}%` }} onClick={(event) => { event.stopPropagation(); jumpTo(index); }} aria-label={`Jump to highlight ${index + 1}`}><span>{index + 1}</span></button>
+                <button
+                  key={`${highlight.start_time}-${index}`}
+                  type="button"
+                  className={`timeline-clip ${activeIndex === index ? 'active' : ''} ${approved.includes(index) ? 'approved' : ''} ${rejected.includes(index) ? 'rejected' : ''}`}
+                  style={{
+                    left: `${(highlight.start_time / timelineEnd) * 100}%`,
+                    width: `${Math.max(((highlight.end_time - highlight.start_time) / timelineEnd) * 100, 2)}%`,
+                  }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    jumpTo(index);
+                  }}
+                  aria-label={`Jump to highlight ${index + 1}`}
+                >
+                  <span>{index + 1}</span>
+                </button>
               ))}
             </div>
           </div>
         </div>
         <aside className="studio-inspector">
-          <div className="studio-status"><span>{isSaving ? 'Saving review…' : 'All changes saved'}</span><b>{approved.length} approved</b></div>
-          {saveError && <p className="studio-error" role="alert">{saveError}</p>}
+          <div className="studio-status">
+            <span>{isSaving ? 'Saving review…' : 'All changes saved'}</span>
+            <b>{approved.length} approved</b>
+          </div>
+          {saveError && (
+            <p className="studio-error" role="alert">
+              {saveError}
+            </p>
+          )}
           <div className="clip-list" aria-label="Detected highlights">
             {highlights.map((highlight, index) => {
               const score = Math.round(highlight.overall_score ?? highlight.score ?? 0);
-              const decision = approved.includes(index) ? 'approved' : rejected.includes(index) ? 'rejected' : 'pending';
-              return <button type="button" key={`${highlight.start_time}-${index}`} className={`clip-row ${activeIndex === index ? 'active' : ''}`} onClick={() => jumpTo(index)}><span className={`clip-decision ${decision}`}>{decision === 'approved' ? <Check size={12} /> : index + 1}</span><span><b>{highlight.hook_sentence || `Highlight ${index + 1}`}</b><small>{formatSeconds(highlight.start_time)} – {formatSeconds(highlight.end_time)} · {score}/100</small></span></button>;
+              const decision = approved.includes(index)
+                ? 'approved'
+                : rejected.includes(index)
+                  ? 'rejected'
+                  : 'pending';
+              return (
+                <button
+                  type="button"
+                  key={`${highlight.start_time}-${index}`}
+                  className={`clip-row ${activeIndex === index ? 'active' : ''}`}
+                  onClick={() => jumpTo(index)}
+                >
+                  <span className={`clip-decision ${decision}`}>
+                    {decision === 'approved' ? <Check size={12} /> : index + 1}
+                  </span>
+                  <span>
+                    <b>{highlight.hook_sentence || `Highlight ${index + 1}`}</b>
+                    <small>
+                      {formatSeconds(highlight.start_time)} – {formatSeconds(highlight.end_time)} ·{' '}
+                      {score}/100
+                    </small>
+                  </span>
+                </button>
+              );
             })}
           </div>
           <div className="clip-editor">
-            <div><span>SELECTED CLIP</span><b>Highlight {activeIndex + 1}</b></div>
-            <p>{activeHighlight?.reason_selected || activeHighlight?.virality_reason || 'Strong gameplay moment identified by the AI.'}</p>
-            <div className="trim-values"><span>IN <b>{formatSeconds(clipStart)}</b></span><span>OUT <b>{formatSeconds(clipEnd)}</b></span></div>
-            <label>Trim start<input type="range" min={activeHighlight?.start_time ?? 0} max={Math.max((activeHighlight?.end_time ?? 0) - 0.1, 0)} step="0.1" value={clipStart} onChange={(event) => updateTrim('start_time', Number(event.target.value))} /></label>
-            <label>Trim end<input type="range" min={(activeHighlight?.start_time ?? 0) + 0.1} max={activeHighlight?.end_time ?? 0} step="0.1" value={clipEnd} onChange={(event) => updateTrim('end_time', Number(event.target.value))} /></label>
-            <div className="clip-actions"><Button variant="secondary" onClick={() => updateDecision(activeIndex, 'rejected')}><RotateCcw size={15} /> Reject</Button><Button onClick={() => updateDecision(activeIndex, 'approved')}><Check size={15} /> Approve</Button></div>
-            <p className="shortcut-note">Space play/pause · ← → navigate · A approve · R reject · [ ] trim</p>
+            <div>
+              <span>SELECTED CLIP</span>
+              <b>Highlight {activeIndex + 1}</b>
+            </div>
+            <p>
+              {activeHighlight?.reason_selected ||
+                activeHighlight?.virality_reason ||
+                'Strong gameplay moment identified by the AI.'}
+            </p>
+            <div className="trim-values">
+              <span>
+                IN <b>{formatSeconds(clipStart)}</b>
+              </span>
+              <span>
+                OUT <b>{formatSeconds(clipEnd)}</b>
+              </span>
+            </div>
+            <label>
+              Trim start
+              <input
+                type="range"
+                min={activeHighlight?.start_time ?? 0}
+                max={Math.max((activeHighlight?.end_time ?? 0) - 0.1, 0)}
+                step="0.1"
+                value={clipStart}
+                onChange={(event) => updateTrim('start_time', Number(event.target.value))}
+              />
+            </label>
+            <label>
+              Trim end
+              <input
+                type="range"
+                min={(activeHighlight?.start_time ?? 0) + 0.1}
+                max={activeHighlight?.end_time ?? 0}
+                step="0.1"
+                value={clipEnd}
+                onChange={(event) => updateTrim('end_time', Number(event.target.value))}
+              />
+            </label>
+            <div className="clip-actions">
+              <Button variant="secondary" onClick={() => updateDecision(activeIndex, 'rejected')}>
+                <RotateCcw size={15} /> Reject
+              </Button>
+              <Button onClick={() => updateDecision(activeIndex, 'approved')}>
+                <Check size={15} /> Approve
+              </Button>
+            </div>
+            <p className="shortcut-note">
+              Space play/pause · ← → navigate · A approve · R reject · [ ] trim
+            </p>
           </div>
         </aside>
       </section>
@@ -1232,7 +1379,7 @@ function About() {
         </span>
         <p className="eyebrow">AI GAMEPLAY SHORTS GENERATOR</p>
         <h2>AI Gameplay Shorts Generator</h2>
-        <p className="about-version">Version 0.1.0</p>
+        <p className="about-version">Version 1.0.0</p>
         <p className="about-description">Professional AI-powered gameplay shorts creation.</p>
         <dl>
           <div>
@@ -1317,19 +1464,22 @@ function App() {
       throw new Error(body.detail ?? 'The review could not be saved.');
     }
   }, []);
-  const renderSelection = useCallback(async (job: Job, selectedIndices: number[], clipEdits: ClipEdit[]) => {
-    const response = await fetch(`${api}/jobs/${job.id}/render`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ selected_indices: selectedIndices, clip_edits: clipEdits }),
-    });
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({}));
-      throw new Error(body.detail ?? 'Selected clips could not be rendered.');
-    }
-    setActiveJob(await response.json());
-    await queryClient.invalidateQueries({ queryKey: ['jobs'] });
-  }, []);
+  const renderSelection = useCallback(
+    async (job: Job, selectedIndices: number[], clipEdits: ClipEdit[]) => {
+      const response = await fetch(`${api}/jobs/${job.id}/render`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selected_indices: selectedIndices, clip_edits: clipEdits }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.detail ?? 'Selected clips could not be rendered.');
+      }
+      setActiveJob(await response.json());
+      await queryClient.invalidateQueries({ queryKey: ['jobs'] });
+    },
+    [],
+  );
   const content =
     liveJob && ['queued', 'processing', 'failed'].includes(liveJob.status) ? (
       <Processing job={liveJob} onComplete={showReview} onRetry={() => resumeProject(liveJob)} />

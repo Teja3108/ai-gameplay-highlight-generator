@@ -24,6 +24,16 @@ npm install
 uv sync --project apps/api --extra dev
 ```
 
+## Desktop release (macOS Apple Silicon)
+
+For a double-clickable macOS application, build the release on an Apple Silicon Mac with the existing local AI engine available:
+
+```bash
+RELEASE_ENGINE_ROOT=/absolute/path/to/AI-Youtube-Shorts-Generator make release
+```
+
+The resulting DMG is written to `Release/`. The release build bundles the frontend, local API runtime, and configured AI engine; the installed application starts and stops its local services automatically. See [Release/INSTALLATION.md](Release/INSTALLATION.md) and [Release/QUICK_START.md](Release/QUICK_START.md).
+
 ## Configuration
 
 Edit `.env` before starting the API. These values are required for processing:

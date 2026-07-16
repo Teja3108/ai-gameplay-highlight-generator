@@ -1,4 +1,4 @@
-.PHONY: help setup install-hooks lint lint-js lint-python format format-check test test-python dev-api dev-web docker-config docker-up
+.PHONY: help setup install-hooks lint lint-js lint-python format format-check test test-python dev-api dev-web docker-config docker-up release
 
 API_DIR := apps/api
 UV := uv
@@ -15,6 +15,7 @@ help:
 	@echo "  dev-web        Start the web application"
 	@echo "  docker-config  Validate Docker Compose configuration"
 	@echo "  docker-up      Build and start the API container"
+	@echo "  release        Build the macOS Apple Silicon DMG release"
 
 setup:
 	@test -f .env || cp .env.example .env
@@ -61,3 +62,6 @@ docker-config:
 
 docker-up:
 	docker compose up --build api
+
+release:
+	npm run release

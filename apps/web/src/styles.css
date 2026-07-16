@@ -1615,9 +1615,19 @@ input[type='range'] {
   border-radius: 3px;
 }
 .timeline-clip:hover,
-.timeline-clip.active { background: #7658b8; border-color: #c0a8ff; }
-.timeline-clip.approved { background: #28574b; border-color: #62b99c; }
-.timeline-clip.rejected { opacity: 0.46; background: #542d39; border-color: #a86070; }
+.timeline-clip.active {
+  background: #7658b8;
+  border-color: #c0a8ff;
+}
+.timeline-clip.approved {
+  background: #28574b;
+  border-color: #62b99c;
+}
+.timeline-clip.rejected {
+  opacity: 0.46;
+  background: #542d39;
+  border-color: #a86070;
+}
 .studio-inspector {
   display: flex;
   min-height: 0;
@@ -1632,9 +1642,22 @@ input[type='range'] {
   font-size: 10px;
   border-bottom: 1px solid #2b2c35;
 }
-.studio-status b { color: #a7e2c8; font-weight: 700; }
-.studio-error { margin: 10px 14px 0; color: #eea7ae; font-size: 10px; line-height: 1.4; }
-.clip-list { max-height: 295px; overflow: auto; padding: 7px; border-bottom: 1px solid #2b2c35; }
+.studio-status b {
+  color: #a7e2c8;
+  font-weight: 700;
+}
+.studio-error {
+  margin: 10px 14px 0;
+  color: #eea7ae;
+  font-size: 10px;
+  line-height: 1.4;
+}
+.clip-list {
+  max-height: 295px;
+  overflow: auto;
+  padding: 7px;
+  border-bottom: 1px solid #2b2c35;
+}
 .clip-row {
   display: flex;
   gap: 10px;
@@ -1646,26 +1669,110 @@ input[type='range'] {
   border: 1px solid transparent;
   border-radius: 7px;
 }
-.clip-row:hover, .clip-row.active { background: #211e2b; border-color: #393247; }
-.clip-row > span:last-child { display: grid; min-width: 0; gap: 4px; }
-.clip-row b { overflow: hidden; color: #e7e5ed; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.clip-row small { color: #858792; font-size: 9px; font-variant-numeric: tabular-nums; }
-.clip-decision { display: grid; width: 20px; height: 20px; flex: none; place-items: center; color: #9b9ca8; font-size: 9px; background: #25262e; border-radius: 50%; }
-.clip-decision.approved { color: #b1efd4; background: #1e4b3e; }
-.clip-decision.rejected { color: #dbabb3; background: #4b2932; }
-.clip-editor { padding: 17px; }
-.clip-editor > div:first-child { display: grid; gap: 5px; }
-.clip-editor > div:first-child span { color: #868794; font-size: 9px; font-weight: 760; letter-spacing: 0.1em; }
-.clip-editor > div:first-child b { color: #f1eff7; font-size: 14px; }
-.clip-editor > p { margin: 11px 0 15px; color: #9899a6; font-size: 11px; line-height: 1.5; }
-.trim-values { display: flex; gap: 8px; margin-bottom: 8px; }
-.trim-values span { flex: 1; padding: 7px; color: #888995; font-size: 9px; background: #1a1b22; border-radius: 5px; }
-.trim-values b { display: block; margin-top: 3px; color: #e2dcef; font-size: 11px; font-variant-numeric: tabular-nums; }
-.clip-editor label { margin-top: 9px; }
-.clip-editor input[type='range'] { margin: 2px 0 0; }
-.clip-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; }
-.clip-actions .button { min-height: 34px; padding: 7px 9px; }
-.shortcut-note { color: #6f717d !important; font-size: 9px !important; }
+.clip-row:hover,
+.clip-row.active {
+  background: #211e2b;
+  border-color: #393247;
+}
+.clip-row > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+.clip-row b {
+  overflow: hidden;
+  color: #e7e5ed;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.clip-row small {
+  color: #858792;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+.clip-decision {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  place-items: center;
+  color: #9b9ca8;
+  font-size: 9px;
+  background: #25262e;
+  border-radius: 50%;
+}
+.clip-decision.approved {
+  color: #b1efd4;
+  background: #1e4b3e;
+}
+.clip-decision.rejected {
+  color: #dbabb3;
+  background: #4b2932;
+}
+.clip-editor {
+  padding: 17px;
+}
+.clip-editor > div:first-child {
+  display: grid;
+  gap: 5px;
+}
+.clip-editor > div:first-child span {
+  color: #868794;
+  font-size: 9px;
+  font-weight: 760;
+  letter-spacing: 0.1em;
+}
+.clip-editor > div:first-child b {
+  color: #f1eff7;
+  font-size: 14px;
+}
+.clip-editor > p {
+  margin: 11px 0 15px;
+  color: #9899a6;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.trim-values {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.trim-values span {
+  flex: 1;
+  padding: 7px;
+  color: #888995;
+  font-size: 9px;
+  background: #1a1b22;
+  border-radius: 5px;
+}
+.trim-values b {
+  display: block;
+  margin-top: 3px;
+  color: #e2dcef;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.clip-editor label {
+  margin-top: 9px;
+}
+.clip-editor input[type='range'] {
+  margin: 2px 0 0;
+}
+.clip-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 16px;
+}
+.clip-actions .button {
+  min-height: 34px;
+  padding: 7px 9px;
+}
+.shortcut-note {
+  color: #6f717d !important;
+  font-size: 9px !important;
+}
 @keyframes spin {
   to {
     transform: rotate(360deg);

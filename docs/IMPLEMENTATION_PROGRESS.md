@@ -14,9 +14,9 @@ full specification.
 
 ## Notes
 
--   Keep this document under version control.
--   Use Markdown for AI tooling compatibility.
--   Treat the final approved version as the source of truth.
+- Keep this document under version control.
+- Use Markdown for AI tooling compatibility.
+- Treat the final approved version as the source of truth.
 
 ## Phase 0
 

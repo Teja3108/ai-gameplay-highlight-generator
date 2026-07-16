@@ -1,6 +1,6 @@
 {
   "name": "ai-gameplay-highlight-generator",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "Professional AI-powered gameplay shorts creation.",
@@ -20,9 +20,48 @@
     "lint": "npm run lint --workspaces --if-present",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "release:prepare": "node scripts/prepare-release.mjs",
+    "release": "npm run build && npm run release:prepare && electron-builder --mac dmg --arm64 --publish never",
+    "desktop": "electron apps/desktop/main.cjs"
+  },
+  "main": "apps/desktop/main.cjs",
+  "build": {
+    "appId": "com.senpaiplays.aigameplayshorts",
+    "productName": "AI Gameplay Shorts Generator",
+    "directories": {
+      "buildResources": "build",
+      "output": "Release"
+    },
+    "files": [
+      "apps/desktop/**/*.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": ".release-staging/runtime",
+        "to": "runtime"
+      },
+      {
+        "from": "apps/web/dist",
+        "to": "web"
+      }
+    ],
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.video",
+      "icon": "apps/desktop/app-icon.icns"
+    },
+    "dmg": {
+      "title": "AI Gameplay Shorts Generator",
+      "artifactName": "AI-Gameplay-Shorts-Generator-${version}-${arch}.${ext}"
+    }
   },
   "devDependencies": {
+    "electron": "^37.10.3",
+    "electron-builder": "^26.15.3",
     "prettier": "^3.5.3"
   }
 }

@@ -34,12 +34,16 @@ venv/
 # Electron
 out/
 release/
+.release-staging/
+build/icon.iconset/
+build/icon.icns
 
 # Logs
 *.log
 logs/
 
 # Local service data
+.data/
 apps/api/data/
 apps/api/.local-storage/
 .local-storage/
