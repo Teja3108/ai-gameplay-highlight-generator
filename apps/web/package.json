@@ -1,6 +1,10 @@
 {
   "name": "@gameplay/web",
   "version": "0.1.0",
+  "description": "Professional AI-powered gameplay shorts creation.",
+  "author": "Teja Goud",
+  "license": "MIT",
+  "homepage": "https://github.com/Teja3108",
   "private": true,
   "type": "module",
   "scripts": {

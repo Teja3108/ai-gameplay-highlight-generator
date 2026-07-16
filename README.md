@@ -1,6 +1,6 @@
-# AI Gameplay Highlight Generator
+# AI Gameplay Shorts Generator
 
-A local-first application for turning gameplay recordings into vertical highlight clips. The React web app uploads a recording to the FastAPI service; the service runs the existing local AI engine, persists project state, and exposes completed clips for in-browser preview and saving.
+Professional AI-powered gameplay shorts creation for Senpai Plays. This local-first application turns gameplay recordings into vertical highlight clips. The React web app uploads a recording to the FastAPI service; the service runs the existing local AI engine, persists project state, and exposes completed clips for in-browser preview and saving.
 
 This is a single-user local application. Do not expose the API or its storage directory to an untrusted network.
 
@@ -135,6 +135,18 @@ scripts/                 Setup, API, migration, lint, and test helpers
 - The API only accepts source paths created by its upload endpoint and only serves files under approved local roots.
 - Add API tests under `apps/api/tests` for validation and state transitions. Run the quality checks before committing.
 - Persistent local job state is intentionally separate from the earlier SQLAlchemy support layer; do not rely on a browser path or expose internal source paths in API responses.
+
+## Author
+
+Developed by **Teja Goud**
+
+GitHub: [github.com/Teja3108](https://github.com/Teja3108)
+
+Built for Senpai Plays.
+
+## Credits
+
+The application is built with React, TypeScript, Vite, TanStack Query, Lucide, FastAPI, and FFmpeg, alongside the existing local AI engine. Their maintainers and open-source communities make this project possible.
 
 ## License
 

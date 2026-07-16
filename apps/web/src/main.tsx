@@ -14,6 +14,7 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import {
   Archive,
+  BadgeInfo,
   ChevronRight,
   Clapperboard,
   Clock3,
@@ -37,7 +38,8 @@ import {
 } from 'lucide-react';
 import './styles.css';
 
-type Page = 'dashboard' | 'generate' | 'review' | 'history' | 'projects' | 'settings' | 'help';
+type Page =
+  'dashboard' | 'generate' | 'review' | 'history' | 'projects' | 'settings' | 'help' | 'about';
 type Highlight = {
   start_time: number;
   end_time: number;
@@ -239,7 +241,7 @@ function Sidebar({ page, setPage }: { page: Page; setPage: (page: Page) => void 
           <Sparkles size={17} />
         </span>
         <span className="brand-name">
-          Highlight<span>AI</span>
+          Shorts<span>AI</span>
         </span>
       </div>
       <div className="workspace">
@@ -275,6 +277,14 @@ function Sidebar({ page, setPage }: { page: Page; setPage: (page: Page) => void 
           <HelpCircle size={18} />
           <span>Help & support</span>
         </button>
+        <button
+          type="button"
+          onClick={() => setPage('about')}
+          className={page === 'about' ? 'active' : ''}
+        >
+          <BadgeInfo size={18} />
+          <span>About</span>
+        </button>
         <div className="account">
           <div>SG</div>
           <span>
@@ -309,6 +319,7 @@ function PageShell({
         <div className="top-actions">{action}</div>
       </header>
       {children}
+      <footer className="app-footer">© 2026 Teja Goud</footer>
     </main>
   );
 }
@@ -1100,6 +1111,53 @@ function Help() {
   );
 }
 
+function About() {
+  return (
+    <PageShell eyebrow="Application" title="About">
+      <section className="about-card">
+        <span className="about-mark">
+          <Sparkles size={20} />
+        </span>
+        <p className="eyebrow">AI GAMEPLAY SHORTS GENERATOR</p>
+        <h2>AI Gameplay Shorts Generator</h2>
+        <p className="about-version">Version 0.1.0</p>
+        <p className="about-description">Professional AI-powered gameplay shorts creation.</p>
+        <dl>
+          <div>
+            <dt>Developed by</dt>
+            <dd>Teja Goud</dd>
+          </div>
+          <div>
+            <dt>Built for</dt>
+            <dd>Senpai Plays</dd>
+          </div>
+          <div>
+            <dt>GitHub</dt>
+            <dd>
+              <a href="https://github.com/Teja3108" target="_blank" rel="noreferrer">
+                github.com/Teja3108
+              </a>
+            </dd>
+          </div>
+          <div>
+            <dt>License</dt>
+            <dd>MIT License</dd>
+          </div>
+          <div>
+            <dt>Built with</dt>
+            <dd>React, TypeScript, Vite, FastAPI, and the local AI engine</dd>
+          </div>
+          <div>
+            <dt>Open-source credits</dt>
+            <dd>React, Vite, TanStack Query, Lucide, FastAPI, and FFmpeg</dd>
+          </div>
+        </dl>
+        <small>© 2026 Teja Goud</small>
+      </section>
+    </PageShell>
+  );
+}
+
 function App() {
   const [page, setPage] = useState<Page>('dashboard');
   const [activeJob, setActiveJob] = useState<Job>();
@@ -1197,6 +1255,8 @@ function App() {
             );
           case 'settings':
             return <SettingsPage defaults={defaults} onSave={saveDefaults} />;
+          case 'about':
+            return <About />;
           default:
             return <Help />;
         }
