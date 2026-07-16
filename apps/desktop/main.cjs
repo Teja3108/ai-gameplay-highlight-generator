@@ -170,7 +170,7 @@ async function createWindow() {
     minHeight: 680,
     show: true,
     backgroundColor: '#0b0c10',
-    title: 'AI Gameplay Shorts Generator',
+    title: 'AI Gameplay Shorts Generator 1.0.1',
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

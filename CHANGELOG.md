@@ -2,6 +2,12 @@
 
 All notable changes to AI Gameplay Shorts Generator are documented here.
 
+## 1.0.1 — 2026-07-16
+
+- Added production-grade Gemini retry, model fallback, API-key rotation, and safe project pausing.
+- Increased streamed upload support to 100 GB and strengthened local storage validation.
+- Improved project resume, navigation recovery, and packaged-runtime reliability.
+
 ## 1.0.0 — 2026-07-16
 
 - First commercial macOS Apple Silicon release.
