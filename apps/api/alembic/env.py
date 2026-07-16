@@ -3,8 +3,8 @@
 from logging.config import fileConfig
 
 from alembic import context
+from app.infrastructure.persistence import models  # noqa: F401
 from app.infrastructure.persistence.database import get_database_url
-from app.infrastructure.persistence.models import Clip, Job, Settings, Video  # noqa: F401
 from app.infrastructure.persistence.models.base import Base
 from sqlalchemy import engine_from_config, pool
 

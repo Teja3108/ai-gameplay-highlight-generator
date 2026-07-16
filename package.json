@@ -2,8 +2,13 @@
   "name": "ai-gameplay-highlight-generator",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Monorepo for the AI Gameplay Highlight Generator platform.",
-  "workspaces": ["apps/web", "apps/desktop", "packages/*"],
+  "workspaces": [
+    "apps/web",
+    "apps/desktop",
+    "packages/*"
+  ],
   "engines": {
     "node": ">=20.18.0",
     "npm": ">=10.8.0"

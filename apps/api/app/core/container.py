@@ -16,11 +16,18 @@ from app.domain.interfaces.repositories import (
 )
 from app.domain.interfaces.storage import StorageInterface
 from app.infrastructure.auth.local_auth_provider import LocalAuthProvider
-from app.infrastructure.config.environment_config_provider import EnvironmentConfigProvider
-from app.infrastructure.persistence.database import create_database_engine, create_session_factory
+from app.infrastructure.config.environment_config_provider import (
+    EnvironmentConfigProvider,
+)
+from app.infrastructure.persistence.database import (
+    create_database_engine,
+    create_session_factory,
+)
 from app.infrastructure.persistence.repositories.clip_repository import ClipRepository
 from app.infrastructure.persistence.repositories.job_repository import JobRepository
-from app.infrastructure.persistence.repositories.settings_repository import SettingsRepository
+from app.infrastructure.persistence.repositories.settings_repository import (
+    SettingsRepository,
+)
 from app.infrastructure.persistence.repositories.video_repository import VideoRepository
 from app.infrastructure.queue.local_queue_provider import LocalQueueProvider
 from app.infrastructure.storage.local_storage_provider import LocalStorageProvider

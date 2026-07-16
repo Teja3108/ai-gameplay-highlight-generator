@@ -1,8 +1,3 @@
-node_modules/
-dist/
-out/
-release/
-coverage/
-.venv/
-__pycache__/
-*.lock
+.claude/
+apps/api/.venv/
+apps/api/uv.lock

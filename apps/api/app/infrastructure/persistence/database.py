@@ -33,7 +33,9 @@ def create_session_factory(engine: Engine) -> sessionmaker[Session]:
 
 
 @contextmanager
-def session_scope(session_factory: sessionmaker[Session]) -> Generator[Session, None, None]:
+def session_scope(
+    session_factory: sessionmaker[Session],
+) -> Generator[Session, None, None]:
     """Provide a transactional session and guarantee cleanup on every path."""
     session = session_factory()
     try:

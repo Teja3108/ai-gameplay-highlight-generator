@@ -1,8 +1,11 @@
 from collections.abc import Generator
 
 import pytest
-from app.infrastructure.persistence.database import create_database_engine, create_session_factory
-from app.infrastructure.persistence.models import Clip, Job, Settings, Video  # noqa: F401
+from app.infrastructure.persistence import models  # noqa: F401
+from app.infrastructure.persistence.database import (
+    create_database_engine,
+    create_session_factory,
+)
 from app.infrastructure.persistence.models.base import Base
 from sqlalchemy.orm import Session, sessionmaker
 

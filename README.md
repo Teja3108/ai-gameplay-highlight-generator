@@ -1,6 +1,8 @@
 # AI Gameplay Highlight Generator
 
-A production-oriented monorepo scaffold for a gameplay-highlight generation platform. This repository currently contains **Phase 0 infrastructure only**: application shells, development tooling, dependency configuration, and container setup. It intentionally includes no domain behavior, AI workflow, API routes, or persistence models.
+A local-first monorepo for a gameplay-highlight generation platform. The web application uploads a
+recording to the local FastAPI service, which orchestrates the existing gameplay engine CLI. This
+repository is not a multi-user hosted service: do not expose its API to a network.
 
 ## Repository layout
 
@@ -37,8 +39,8 @@ npm run dev:web
 # Desktop shell
 npm run dev:desktop
 
-# API service
-cd apps/api && uv run uvicorn app.main:app --reload
+# API service (requires GAMEPLAY_ENGINE_ROOT and GAMEPLAY_ENGINE_PYTHON in .env)
+uv run --project apps/api uvicorn app.main:app --reload
 
 # Quality checks
 npm run lint

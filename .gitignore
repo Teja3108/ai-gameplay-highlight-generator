@@ -3,6 +3,7 @@
 Thumbs.db
 .idea/
 .vscode/
+.claude/
 *.swp
 
 # Environment and secrets
@@ -40,4 +41,8 @@ logs/
 
 # Local service data
 apps/api/data/
+apps/api/.local-storage/
 .local-storage/
+*.db
+*.sqlite
+*.sqlite3

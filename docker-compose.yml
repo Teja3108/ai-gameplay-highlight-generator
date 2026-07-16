@@ -9,5 +9,5 @@ services:
       APP_ENV: ${APP_ENV:-development}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
-      - "${API_PORT:-8000}:8000"
+      - '127.0.0.1:${API_PORT:-8000}:8000'
     restart: unless-stopped
